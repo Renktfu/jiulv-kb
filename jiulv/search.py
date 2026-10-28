@@ -439,9 +439,16 @@ def list_docs(
     那份当代表，副本数挂在 duplicates 上。
     """
     where, params = _build_filters({k: v for k, v in filters.items() if v not in (None, "", [])})
+    # 没有等级的（资料库、工作记录这类）按路径升序：同一批资料的文件名自带
+    # 序号，按 id 倒序会把「00-说明」压到最后，点进地区看到的第一条是最边角的那篇。
+    # 有等级的排序完全不变：这类行的这个键是 NULL，不参与比较。
     order_sql = {
         "recent": "d.indexed_at DESC",
-        "grade": "CASE d.grade WHEN 'S' THEN 0 WHEN 'A' THEN 1 WHEN 'B' THEN 2 ELSE 3 END, d.id DESC",
+        "grade": (
+            "CASE d.grade WHEN 'S' THEN 0 WHEN 'A' THEN 1 WHEN 'B' THEN 2 ELSE 3 END,"
+            "CASE WHEN d.grade IS NULL OR d.grade = '' THEN d.rel_path END ASC,"
+            "d.id DESC"
+        ),
         "title": "d.title ASC",
     }.get(order, "d.indexed_at DESC")
     limit = max(1, min(limit, 200))

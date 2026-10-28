@@ -21,6 +21,11 @@ const TYPE_LABEL = {
   misc: "其他",
 };
 
+// 「自有资料库」收的是查证用的资料，不是可发布的稿。它们的 doc_type 也是 note
+// （这样组稿台能当参考引用），但卡片上必须写「资料」，不然会被当成爆款照抄。
+const typeLabel = (doc) =>
+  doc.group === "library" ? "资料" : TYPE_LABEL[doc.doc_type] || doc.doc_type || "文档";
+
 const state = {
   view: "search",
   query: "",
@@ -174,7 +179,9 @@ function renderFacets() {
     box.innerHTML = "";
     const items = (facets[key] || []).slice(0, key === "regions" ? 12 : 10);
     for (const item of items) {
-      const label = key === "doc_types" ? TYPE_LABEL[item.value] || item.value : item.value;
+      let label = item.value;
+      if (key === "doc_types") label = TYPE_LABEL[item.value] || item.value;
+      else if (key === "groups" && item.value === "library") label = "资料库";
       const btn = el("button", "chip");
       btn.innerHTML = `${escapeHtml(label)}<span class="n">${item.count}</span>`;
       if (state.filters[filterKey] === item.value) btn.classList.add("active");
@@ -200,7 +207,7 @@ function resultCard(hit) {
     const badge = el("span", "badge " + doc.grade.toLowerCase(), doc.grade + "级");
     top.appendChild(badge);
   }
-  const type = el("span", "badge type", TYPE_LABEL[doc.doc_type] || doc.doc_type || "文档");
+  const type = el("span", "badge type", typeLabel(doc));
   top.appendChild(type);
   if (hit.duplicates) top.appendChild(el("span", "badge", `另有 ${hit.duplicates} 份副本`));
 
@@ -287,7 +294,9 @@ function filterLabels() {
   const out = [];
   for (const [key, value] of Object.entries(state.filters)) {
     if (!value) continue;
-    out.push(key === "doc_type" ? TYPE_LABEL[value] || value : value);
+    if (key === "doc_type") out.push(TYPE_LABEL[value] || value);
+    else if (key === "group" && value === "library") out.push("资料");
+    else out.push(value);
   }
   return out;
 }
@@ -426,7 +435,7 @@ async function openDoc(uid) {
   $("#reader-body").innerHTML = '<p class="loading">载入中…</p>';
   try {
     const doc = await api(`/api/v1/docs/${encodeURIComponent(uid)}`);
-    $("#reader-grade").textContent = doc.grade ? doc.grade + "级" : TYPE_LABEL[doc.doc_type] || "";
+    $("#reader-grade").textContent = doc.grade ? doc.grade + "级" : typeLabel(doc) || "";
     $("#reader-grade").className = "badge " + (doc.grade || "").toLowerCase();
     $("#reader-title").textContent = doc.title || "（无标题）";
     const meta = [];

@@ -503,7 +503,12 @@ def create_app(config_path: str | None = None) -> FastAPI:
 
         @app.get("/", include_in_schema=False)
         def index() -> FileResponse:
-            return FileResponse(str(WEB_DIR / "index.html"))
+            # 首页不发缓存。静态资源靠 ?v=N 破缓存，但 HTML 自己被浏览器缓存住的话，
+            # 里面那个 N 永远是旧的，改了前端用户看到的还是上一版。
+            return FileResponse(
+                str(WEB_DIR / "index.html"),
+                headers={"Cache-Control": "no-cache, must-revalidate"},
+            )
 
     @app.get("/favicon.svg", include_in_schema=False)
     def favicon():

@@ -35,6 +35,15 @@ sources:
     include: ["**/*.md", "**/*.txt", "**/*.docx", "**/*.pdf"]
     exclude: ["**/node_modules/**", "**/.git/**"]
 
+  # 自有资料库：外部拿到的整份资料，按主题拆成单篇放在这里。
+  # group 用 library，跟「爆款笔记」区分开——这些是查证用的资料，不是可发布的稿。
+  # 详见 docs/USAGE.md「外部整份资料：拆成单篇再放」。
+  - name: 自有资料库
+    group: library
+    path: data/library
+    include: ["**/*.md", "**/*.txt"]
+    exclude: ["**/.*/**", "**/~$*"]
+
   # 想收录自有成片/新批次，再加一条即可
   # - name: 我的文案产出
   #   group: mine
