@@ -1,0 +1,217 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "kb_search",
+      "description": "检索酒旅文案知识库。库里是爆款笔记、写作规则、钩子、房型与政策资料。返回标题、等级、互动数据、命中片段。写任何酒店文案前先调这个，确认资料是否存在。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "检索词，中文两字以上即可，如「三亚 亲子 选房」"
+          },
+          "region": {
+            "type": "string",
+            "description": "地区过滤：海南 / 云贵川 / 西安 / 长白山 / 新疆 / 崇礼 / 东南亚"
+          },
+          "doc_type": {
+            "type": "string",
+            "description": "类型过滤：note 爆款笔记 / rule 写作规则 / hook 钩子 / guide 房型攻略 / fact 硬资料 / ops 代运营 / daily 每日采集"
+          },
+          "hotel": {
+            "type": "string",
+            "description": "酒店名过滤"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 8,
+            "minimum": 1,
+            "maximum": 30
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "kb_get_doc",
+      "description": "按 uid 或标题关键词取一篇文档的全文，用于核对房型、服务、评论等具体事实。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "uid_or_title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "uid_or_title"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "kb_hooks",
+      "description": "取结构化开头钩子。每条含原文、类型、适用人群、对应痛点、心理机制、期望动作。写标题和第一句时用。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "hook_type": {
+            "type": "string",
+            "description": "反常识 / 决策瘫痪 / 代价警示 / 身份代入 / 时间窗口 / 数字具体"
+          },
+          "audience": {
+            "type": "string",
+            "description": "M1 M2 M3 C1 C2 F1，可用空格分隔多个"
+          },
+          "pain": {
+            "type": "string",
+            "description": "P1-P7"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 8,
+            "minimum": 1,
+            "maximum": 30
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "kb_style_rules",
+      "description": "取写作规则总库与风格范文要点。动笔前先读，违反规则的稿子会被判不合格。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "topic": {
+            "type": "string",
+            "description": "想了解的规则主题，如「价格」「房型描写」「避坑」"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 3,
+            "minimum": 1,
+            "maximum": 10
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "kb_context_pack",
+      "description": "一次拿全写稿素材：规则 + 钩子 + 同地区爆款结构 + 可核对事实，拼成一段可直接使用的提示词。这是本库的主出口，写整篇笔记前优先调它，再按返回的 prompt 生成正文。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "hotel": {
+            "type": "string",
+            "description": "酒店名"
+          },
+          "region": {
+            "type": "string",
+            "description": "地区"
+          },
+          "persona": {
+            "type": "string",
+            "description": "人群：M1-M3/C1/C2/F1 或中文如「带娃」"
+          },
+          "pain": {
+            "type": "string",
+            "description": "痛点：P1-P7 或中文如「选房」"
+          },
+          "hook_type": {
+            "type": "string",
+            "description": "钩子类型"
+          },
+          "goal": {
+            "type": "string",
+            "description": "期望动作：save/comment/consult/share"
+          },
+          "angle": {
+            "type": "string",
+            "description": "本篇切入角度"
+          },
+          "extra_facts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "你手上另有、库里没有的事实，一并写进提示词"
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "kb_stats",
+      "description": "库的规模与分布：文档数、地区分布、类型分布、钩子数。判断某地区资料够不够写之前先看这个。",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "kb_feedback",
+      "description": "回填发布后的数据（赞藏评），用于复盘哪些钩子有效。发完稿就调一次。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "hotel": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "hook_type": {
+            "type": "string"
+          },
+          "audience": {
+            "type": "string"
+          },
+          "likes": {
+            "type": "integer",
+            "default": 0
+          },
+          "saves": {
+            "type": "integer",
+            "default": 0
+          },
+          "comments": {
+            "type": "integer",
+            "default": 0
+          },
+          "views": {
+            "type": "integer",
+            "default": 0
+          },
+          "is_hit": {
+            "type": "boolean",
+            "description": "是否达到你的爆款线"
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+]

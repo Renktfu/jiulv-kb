@@ -1,0 +1,16 @@
+{
+  "_说明": "OpenClaw 走标准 MCP stdio 配置。如果你的版本用 workspace 下的 mcp.json，就放在 ~/.openclaw/workspace/mcp.json；如果读的是全局配置，合并进 ~/.openclaw/config.json 的 mcpServers。命令用绝对路径最稳，别依赖 PATH。",
+  "mcpServers": {
+    "jiulv-kb": {
+      "command": "/ABSOLUTE/PATH/TO/jiulv-kb/.venv/bin/python",
+      "args": [
+        "-m",
+        "jiulv.mcp_server"
+      ],
+      "env": {
+        "JIULV_CONFIG": "/ABSOLUTE/PATH/TO/jiulv-kb/config.yaml",
+        "PYTHONPATH": "/ABSOLUTE/PATH/TO/jiulv-kb"
+      }
+    }
+  }
+}

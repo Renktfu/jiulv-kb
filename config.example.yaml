@@ -1,0 +1,82 @@
+# jiulv-kb 配置示例
+# 复制为 config.yaml 后修改。所有路径支持 ~ 展开和 ${ENV_VAR} 变量。
+
+app:
+  name: 酒旅爆款知识库
+  # 数据库位置，相对路径以 config.yaml 所在目录为基准
+  database: data/kb.sqlite3
+  # 网页界面默认监听
+  host: 127.0.0.1
+  port: 8787
+
+# 收录来源。每个 source 是一个目录，递归扫描 include 里的格式。
+# group 只用于分组统计和筛选，随便起名。
+sources:
+  - name: 小红书酒旅资料库
+    group: workbuddy
+    path: ~/WorkBuddy/2026-10-16-16-08-58/小红书酒旅资料库
+    include: ["**/*.md", "**/*.txt", "**/*.docx", "**/*.pdf", "**/*.xlsx"]
+    exclude:
+      - "**/_raw/**"
+      - "**/node_modules/**"
+      - "**/.*/**"
+      - "**/~$*"
+
+  - name: OpenClaw 参考库
+    group: openclaw
+    path: ~/.openclaw/workspace/reference
+    include: ["**/*.md", "**/*.txt", "**/*.docx", "**/*.pdf"]
+    exclude: ["**/node_modules/**", "**/.git/**"]
+
+  # 想收录自有成片/新批次，再加一条即可
+  # - name: 我的文案产出
+  #   group: mine
+  #   path: ~/Documents/我的文案
+  #   include: ["**/*.md"]
+
+# 检索
+search:
+  # 单次返回条数上限
+  max_limit: 50
+  # 关键词检索：AND 命中为 0 时自动退回 OR
+  fallback_to_or: true
+  # 标题权重（BM25 加权），越大越看重标题命中
+  title_weight: 6.0
+  # 参考片段截取字数
+  snippet_chars: 220
+
+# 语义检索（可选）。走 OpenAI 兼容的 /v1/embeddings 接口。
+semantic:
+  enabled: false
+  base_url: https://api.deepseek.com/v1
+  api_key_env: JIULV_EMBED_API_KEY
+  model: text-embedding-3-small
+  batch_size: 32
+  # 混合检索时向量结果的权重占比（0-1）
+  weight: 0.45
+
+# 可选：让服务端自己写稿时用的对话模型（不配也能用，Agent 直接读 prompt 自己写）
+generation:
+  enabled: false
+  base_url: https://api.deepseek.com/v1
+  api_key_env: JIULV_LLM_API_KEY
+  model: deepseek-chat
+  temperature: 0.85
+  max_tokens: 1600
+
+# 接口鉴权。默认只允许本机免鉴权访问。
+security:
+  # 留空表示不校验（仅建议本机使用）
+  api_keys: []
+  allow_localhost_without_key: true
+  # 允许跨域的前端地址，["*"] 为全放开
+  cors_origins: ["*"]
+
+# 组稿默认值
+compose:
+  # 一次上下文包最多取几篇参考
+  max_references: 6
+  # 每篇参考最多给多少字
+  excerpt_chars: 600
+  # 默认风格档案名（对应 style_profiles）
+  default_style: 瑞克克

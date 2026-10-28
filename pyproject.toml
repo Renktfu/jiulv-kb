@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jiulv-kb"
+version = "0.1.0"
+description = "酒旅爆款文案知识库：把散落的爆款笔记、写作规则、钩子、房型资料，变成任何 AI 都能调用的检索与组稿服务。"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "jiulv-kb contributors" }]
+keywords = ["xiaohongshu", "hotel", "travel", "knowledge-base", "rag", "mcp", "copywriting"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Text Processing :: Indexing",
+]
+
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# 文档解析：docx / pdf / xlsx。不装也能跑，只是这些格式会被跳过。
+parsers = ["python-docx>=1.1", "pypdf>=4.0", "openpyxl>=3.1"]
+# 语义检索：向量相似度用 numpy 加速，不装则退回纯 Python。
+semantic = ["numpy>=1.24", "httpx>=0.27"]
+dev = ["pytest>=7.4", "httpx>=0.27"]
+
+[project.scripts]
+jiulv = "jiulv.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["jiulv*"]
+
+[tool.setuptools.package-data]
+jiulv = ["web/*", "taxonomy.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

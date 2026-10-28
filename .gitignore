@@ -1,0 +1,30 @@
+# 数据与本地环境
+data/*.sqlite3
+data/*.sqlite3-journal
+data/*.sqlite3-wal
+data/*.sqlite3-shm
+data/export/
+!data/.gitkeep
+
+# 真实资料库绝不进仓库
+corpus/
+config.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+build/
+dist/
+
+# 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# 测试临时目录
+.pytest-tmp/

@@ -1,0 +1,14 @@
+# Codex 的 MCP 配置在 ~/.codex/config.toml。
+# 把下面这段追加进去，路径换成你的实际路径。
+
+[mcp_servers.jiulv]
+command = "/ABSOLUTE/PATH/TO/jiulv-kb/.venv/bin/jiulv"
+args = ["--config", "/ABSOLUTE/PATH/TO/jiulv-kb/config.yaml", "mcp"]
+startup_timeout_sec = 20
+
+[mcp_servers.jiulv.env]
+JIULV_CONFIG = "/ABSOLUTE/PATH/TO/jiulv-kb/config.yaml"
+
+# 接上之后在 Codex 里可以直接说：
+#   「用 kb_context_pack 给三亚仁恒皇冠写一篇亲子选房笔记」
+# 它会自己调检索、拿钩子和规则，再按提示词写。

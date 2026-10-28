@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>酒旅爆款知识库</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M4 22c4-1 6-4 6-7s-2-5-2-8 5-4 6 0c1 5 0 9 4 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M15 20c3-2 6-2 9-1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <div>
+      <h1>酒旅爆款知识库</h1>
+      <p id="tagline">爆款笔记 · 写作规则 · 钩子 · 房型事实</p>
+    </div>
+  </div>
+
+  <form id="search-form" class="searchbox" autocomplete="off">
+    <input id="q" type="search" placeholder="搜酒店、地区、痛点，例如「三亚 亲子 选房」" />
+    <button type="submit">检索</button>
+  </form>
+
+  <nav class="tabs" id="tabs">
+    <a href="#/search" data-view="search" class="active">检索</a>
+    <a href="#/compose" data-view="compose">组稿台</a>
+    <a href="#/hooks" data-view="hooks">钩子库</a>
+    <a href="#/stats" data-view="stats">数据</a>
+  </nav>
+</header>
+
+<main id="app">
+  <aside class="filters" id="filters">
+    <div class="filter-block">
+      <h2>地区</h2>
+      <div id="facet-region" class="chips"></div>
+    </div>
+    <div class="filter-block">
+      <h2>类型</h2>
+      <div id="facet-type" class="chips"></div>
+    </div>
+    <div class="filter-block">
+      <h2>等级</h2>
+      <div id="facet-grade" class="chips"></div>
+    </div>
+    <div class="filter-block">
+      <h2>来源</h2>
+      <div id="facet-group" class="chips"></div>
+    </div>
+    <div class="filter-foot">
+      <button id="clear-filters" class="ghost">清空筛选</button>
+      <span id="db-meta"></span>
+    </div>
+  </aside>
+
+  <section class="pane" id="pane">
+    <div id="view" class="view"></div>
+  </section>
+
+  <section class="reader" id="reader" hidden>
+    <div class="reader-head">
+      <div>
+        <span class="badge" id="reader-grade"></span>
+        <h2 id="reader-title"></h2>
+        <p id="reader-meta" class="meta"></p>
+      </div>
+      <button class="ghost" id="reader-close">关闭</button>
+    </div>
+    <div id="reader-body" class="reader-body"></div>
+    <div id="reader-related" class="related"></div>
+  </section>
+</main>
+
+<div id="toast" class="toast" hidden></div>
+<script src="/assets/app.js"></script>
+</body>
+</html>

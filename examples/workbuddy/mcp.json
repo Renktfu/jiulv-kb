@@ -1,0 +1,12 @@
+{
+  "_说明": "WorkBuddy 的 MCP 配置放在 ~/.workbuddy/mcp.json。把 mcpServers 里这一段合并进去，然后把路径换成你的实际路径；改完要在连接器管理页右上角的自定义连接器里点「信任」才会生效。",
+  "mcpServers": {
+    "jiulv-kb": {
+      "command": "/ABSOLUTE/PATH/TO/jiulv-kb/.venv/bin/jiulv",
+      "args": ["--config", "/ABSOLUTE/PATH/TO/jiulv-kb/config.yaml", "mcp"],
+      "env": {
+        "JIULV_CONFIG": "/ABSOLUTE/PATH/TO/jiulv-kb/config.yaml"
+      }
+    }
+  }
+}
