@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -449,6 +449,52 @@ def create_app(config_path: str | None = None) -> FastAPI:
             bucket["likes"] += item.get("likes") or 0
             bucket["saves"] += item.get("saves") or 0
         return {"items": items, "by_hook_type": list(by_hook.values())}
+
+    # ------------------------------------------------------------ 工具网关
+
+    @app.get("/api/v1/tools", tags=["工具"], dependencies=guard)
+    def tools_api(format: str = Query("openai", pattern="^(openai|mcp)$")) -> Any:
+        """工具 schema。`openai` 是 function calling 那一套，`mcp` 是原始 inputSchema。
+
+        和 `jiulv tools` 命令同一份数据，只是走 HTTP，方便远端脚本现取现用。
+        """
+        from .mcp_server import TOOLS
+
+        if format == "mcp":
+            return TOOLS
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool["name"],
+                    "description": tool["description"],
+                    "parameters": tool["inputSchema"],
+                },
+            }
+            for tool in TOOLS
+        ]
+
+    @app.post("/api/v1/tool/{name}", tags=["工具"], dependencies=guard)
+    def call_tool(name: str, args: Optional[Dict[str, Any]] = Body(default=None)) -> JSONResponse:
+        """按 MCP 的工具名直接执行，返回结构与 MCP 一模一样。
+
+        给「只认 function calling、不接 MCP」的框架用：schema 从 `/api/v1/tools` 取，
+        模型给出工具名和 arguments 之后，把 arguments 原样 POST 到这里即可。
+
+        中间不做「工具名 → REST 端点」的映射，是因为那层映射每加一个工具就要改一次，
+        而且两边的返回结构迟早对不上（比如 kb_style_rules 在 MCP 里还附带组稿底线，
+        映射到 /api/v1/rules 就拿不到）。
+        """
+        from .mcp_server import Server
+
+        handler = Server(config)
+        try:
+            data = handler.dispatch(name, args or {})
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=f"没有这个工具：{name}") from exc
+        except Exception as exc:  # 工具内部失败也按 200 返回原因，别把框架的循环打断
+            return JSONResponse({"ok": False, "error": str(exc)})
+        return JSONResponse(data)
 
     # ------------------------------------------------------------ 静态页面
 

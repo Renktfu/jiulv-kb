@@ -172,6 +172,34 @@
 
 回写池最近的条目：`title`、`kind`、`path`、`mtime`、`bytes`。参数 `limit` 默认 20。
 
+## GET /api/v1/tools
+
+工具 schema，和 `jiulv tools` 命令同一份数据，只是走 HTTP，方便远端脚本现取现用。
+
+`format=openai`（默认）返回 function calling 用的 `{"type":"function","function":{...}}` 数组；
+`format=mcp` 返回原始的 `inputSchema`。十一个工具的定义都在这里。
+
+## POST /api/v1/tool/{name}
+
+按 MCP 的工具名直接执行，请求体就是该工具的参数对象，返回结构与 MCP 里拿到的**完全一致**。
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/v1/tool/kb_search \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"三亚 亲子 选房","limit":3}'
+```
+
+这是给只认 function calling、不接 MCP 的框架用的：schema 从 `/api/v1/tools` 取，
+模型给出工具名和 `arguments` 之后原样 POST 过来就行。
+
+刻意不做「工具名 → REST 端点」的映射，原因是那层映射两边的返回结构对不上：
+`kb_style_rules` 在 MCP 里除了规则文档还附带组稿底线 `guardrails`，映射到
+`/api/v1/rules` 就拿不到；`kb_annotations` 是「取概念下文档 + 逐篇取注解 + 去重排序」
+的组合，REST 里没有单个端点干这件事。
+
+未知工具返回 404。工具内部执行失败返回 200 带 `{"ok": false, "error": "..."}`，
+方便 Agent 循环继续跑而不是直接崩。
+
 ## 错误约定
 
 参数错误返回 422（FastAPI 默认），未授权 401，找不到资源 404。`/api/v1/generate` 的模型调用失败返回 400 并带原因。

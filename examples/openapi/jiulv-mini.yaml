@@ -1,0 +1,296 @@
+openapi: 3.0.3
+
+info:
+  title: 酒旅爆款知识库
+  version: 0.5.2
+  description: |
+    把爆款笔记、写作规则、钩子、房型资料变成可检索、可组稿的服务。
+
+    这份是精简版，只含四个最常用的操作，专门给 Dify / Coze / ChatGPT Actions
+    这类只能导入 OpenAPI 的平台用。要完整能力（十一个工具）请走 MCP，
+    或者用 function calling 调 /api/v1/tool/{name}。
+
+    注意 servers 里是本机地址，云端平台访问不到，需要先暴露到公网，
+    详见 docs/LLM.md 第五节。暴露之前务必配好 security.api_keys。
+
+servers:
+  - url: http://127.0.0.1:8787
+    description: 本机。云端平台用不了这个地址，换成隧道地址。
+
+security: []
+
+paths:
+  /api/v1/search:
+    get:
+      operationId: kbSearch
+      summary: 检索知识库
+      description: |
+        按关键词检索爆款笔记、写作规则、钩子、房型资料，返回标题、等级、
+        赞藏评和命中的原文片段。写任何酒店文案前先调这个，确认资料是否存在。
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: 检索词，中文两个字即可，如「三亚 亲子 选房」。空格分词，多个词是 AND 关系。
+          schema:
+            type: string
+        - name: region
+          in: query
+          required: false
+          description: 地区过滤，如 海南 / 云贵川 / 西安 / 长白山 / 新疆 / 崇礼 / 东南亚
+          schema:
+            type: string
+        - name: doc_type
+          in: query
+          required: false
+          description: 类型过滤。note 爆款笔记，rule 写作规则，hook 钩子，guide 房型攻略，fact 硬资料，ops 代运营，daily 每日采集
+          schema:
+            type: string
+            enum: [note, rule, hook, guide, fact, ops, daily]
+        - name: hotel
+          in: query
+          required: false
+          description: 酒店名过滤
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: 返回条数，默认 10，上限 50
+          schema:
+            type: integer
+            default: 10
+            minimum: 1
+            maximum: 50
+      responses:
+        "200":
+          description: 检索结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query:
+                    type: string
+                  mode:
+                    type: string
+                  total:
+                    type: integer
+                  hits:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        doc:
+                          type: object
+                          description: 文档元数据，含 uid、title、doc_type、grade、region、hotel、metrics、path
+                        snippet:
+                          type: string
+                          description: 命中的原文片段，命中词用 «» 标记
+                        duplicates:
+                          type: integer
+                          description: 还有几份重复副本被折叠掉了
+
+  /api/v1/docs/{uid}:
+    get:
+      operationId: kbGetDoc
+      summary: 取一篇文档的全文
+      description: |
+        取全文，同时返回这篇的注解、所属概念、反向链接和相关篇目。
+        写具体房型、服务、楼层之前用它核对事实。
+      parameters:
+        - name: uid
+          in: path
+          required: true
+          description: 文档 uid，也接受标题片段
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 文档详情
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uid:
+                    type: string
+                  title:
+                    type: string
+                  content:
+                    type: string
+                    description: 全文 markdown
+                  annotations:
+                    type: array
+                    description: 注解，带 kind、text、evidence、origin
+                    items:
+                      type: object
+                  concepts:
+                    type: array
+                    description: 所属概念，带 kind 和 label
+                    items:
+                      type: object
+                  backlinks:
+                    type: array
+                    description: 通过共享概念找上来的其他笔记
+                    items:
+                      type: object
+
+  /api/v1/compose:
+    post:
+      operationId: kbCompose
+      summary: 生成组稿上下文包
+      description: |
+        写整篇笔记之前调这个，是主出口。它把风格规则、钩子、同地区爆款结构、
+        可核对事实拼成一段带输出约束的提示词，直接交给模型就能写。
+
+        必须读返回里的 warnings。出现「库里没有这家酒店的直接资料」时，
+        说明这次只有同地区参考，写具体房型和服务的准确性没有保障。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                hotel:
+                  type: string
+                  description: 酒店名，如 三亚仁恒皇冠
+                region:
+                  type: string
+                  description: 地区，如 海南
+                persona:
+                  type: string
+                  description: 人群，M1 M2 M3 C1 C2 F1，也接受「带娃」这类中文
+                pain:
+                  type: string
+                  description: 痛点，P1-P7，也接受「选房」这类中文
+                hook_type:
+                  type: string
+                  description: 钩子类型
+                  enum: [反常识, 决策瘫痪, 代价警示, 身份代入, 时间窗口, 数字具体]
+                goal:
+                  type: string
+                  description: 期望动作
+                  enum: [save, comment, consult, share]
+                  default: save
+                angle:
+                  type: string
+                  description: 切入角度，一句话，最影响成稿质量
+                extra_facts:
+                  type: array
+                  description: 你手上另有、库里没有的事实，会一并写进提示词
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: 上下文包
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  prompt:
+                    type: string
+                    description: 拼好的完整提示词，直接给模型
+                  brief:
+                    type: object
+                    description: 归一化后的任务参数
+                  warnings:
+                    type: array
+                    description: 资料不足的提醒，必须读
+                    items:
+                      type: string
+                  references:
+                    type: array
+                    description: 参考篇目，每条带 reason 和 snippet
+                    items:
+                      type: object
+                  hooks:
+                    type: array
+                    items:
+                      type: object
+                  style_rules:
+                    type: array
+                    items:
+                      type: object
+                  facts:
+                    type: array
+                    items:
+                      type: object
+                  guardrails:
+                    type: array
+                    description: 组稿底线，不能违反的红线
+                    items:
+                      type: string
+                  coverage:
+                    type: object
+                    description: 各类素材命中数量
+                  compose_id:
+                    type: string
+                    description: 这次组稿的 id，回填时用它对上
+
+  /api/v1/inbox:
+    post:
+      operationId: kbSave
+      summary: 回写一篇稿子进库
+      description: |
+        写完调一次，稿子立刻可被检索到，下一篇组稿时它就在参考里了。
+        这是让库越用越厚的唯一办法。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, content]
+              properties:
+                title:
+                  type: string
+                  description: 标题
+                content:
+                  type: string
+                  description: 正文 markdown
+                kind:
+                  type: string
+                  description: 文档类型
+                  enum: [note, hook, rule, fact, guide, ops, daily]
+                  default: note
+                hotel:
+                  type: string
+                region:
+                  type: string
+                grade:
+                  type: string
+                  description: S / A / B，不确定就留空
+                agent:
+                  type: string
+                  description: 谁写的，如 openclaw / workbuddy / dify
+                note:
+                  type: string
+                  description: 这篇为什么这么写，一句话。会进正文顶部，下一篇组稿会用到
+      responses:
+        "200":
+          description: 入库结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  path:
+                    type: string
+                    description: 落盘位置
+                  uid:
+                    type: string
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        只有配了 security.api_keys 才需要。默认留空时本机访问免鉴权。
+        暴露到公网之前一定要配上。

@@ -422,6 +422,95 @@ def cmd_tools(args: argparse.Namespace) -> int:
     return 0
 
 
+def _port_open(host: str, port: int, timeout: float = 0.35) -> bool:
+    """探一下服务在不在。只看能不能连上，不发请求。"""
+    import socket
+
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def cmd_where(args: argparse.Namespace) -> int:
+    """打印接入外部客户端时要填的绝对路径，以及可直接复制的配置片段。
+
+    Agent 启动 MCP 子进程时的 PATH 和终端里不一样，配置里写 `jiulv` 经常找不到；
+    手写绝对路径又容易抄错。这个命令的作用就是让这一步不用猜。
+    片段里一律用 `python -m jiulv.mcp_server` 而不是 `jiulv`：前者不依赖 PATH、
+    不依赖 shebang、Windows 上也一样跑，是四端里最不容易出错的一种写法。
+    """
+    config = load_config(args.config)
+    root = PKG_ROOT
+    cfg_path = config.path or (Path.cwd() / "config.yaml")
+    # 优先项目自带的 .venv：客户端启动子进程时不会继承你终端的激活状态
+    candidates = [
+        root / ".venv" / "bin" / "python",
+        root / ".venv" / "Scripts" / "python.exe",
+    ]
+    py = next((p for p in candidates if p.exists()), Path(sys.executable))
+    host = config.get("app", "host", default="127.0.0.1")
+    port = int(config.get("app", "port", default=8787))
+    db_path = config.db_path
+    running = _port_open(host, port)
+
+    mcp_json = {
+        "mcpServers": {
+            "jiulv-kb": {
+                "command": str(py),
+                "args": ["-m", "jiulv.mcp_server"],
+                "env": {"JIULV_CONFIG": str(cfg_path), "PYTHONPATH": str(root)},
+            }
+        }
+    }
+    toml = (
+        "[mcp_servers.jiulv]\n"
+        f"command = '{py}'\n"
+        'args = ["-m", "jiulv.mcp_server"]\n'
+        "startup_timeout_sec = 20\n\n"
+        "[mcp_servers.jiulv.env]\n"
+        f"JIULV_CONFIG = '{cfg_path}'\n"
+        f"PYTHONPATH = '{root}'\n"
+    )
+
+    info = {
+        "root": str(root),
+        "config": str(cfg_path),
+        "database": str(db_path),
+        "python": str(py),
+        "server": f"http://{host}:{port}",
+        "running": running,
+        "mcp_json": mcp_json,
+        "codex_toml": toml,
+    }
+    if args.json:
+        _print(info)
+        return 0
+
+    db_note = f"（{db_path.stat().st_size / 1048576:.0f} MB）" if db_path.exists() else "（还没建）"
+    print("把下面这些路径填进客户端的配置里，不要再手抄。\n")
+    print(f"项目根目录    {root}")
+    print(f"配置文件      {cfg_path}")
+    print(f"数据库        {db_path} {db_note}")
+    print(f"Python        {py}")
+    print(f"服务地址      http://{host}:{port}    {'在线' if running else '未启动'}")
+    print("\n—— 这一段贴进 Claude Desktop / Cursor / Cline / Cherry Studio 的 mcpServers ——\n")
+    print(json.dumps(mcp_json, ensure_ascii=False, indent=2))
+    print("\n—— 这一段追加到 ~/.codex/config.toml ——\n")
+    print(toml, end="")
+    print("\n—— Claude Code 一条命令 ——\n")
+    if sys.platform.startswith("win"):
+        print(f'claude mcp add jiulv -e JIULV_CONFIG="{cfg_path}" -e PYTHONPATH="{root}" -- "{py}" -m jiulv.mcp_server')
+    else:
+        print(f"claude mcp add jiulv -e JIULV_CONFIG={cfg_path} -e PYTHONPATH={root} -- {py} -m jiulv.mcp_server")
+    print("\n—— 验证 server 本身通不通（打出版本号和工具数就算通）——\n")
+    print("printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}' \\")
+    print(f"  | {py} -m jiulv.mcp_server")
+    print("\n打不出来就是 server 侧的问题，跟客户端无关，先修这一步。")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="jiulv", description="酒旅爆款知识库")
     parser.add_argument("--config", help="配置文件路径，默认找当前目录 config.yaml")
@@ -528,6 +617,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_export = sub.add_parser("export", help="导出 docs/hooks 为 jsonl")
     p_export.add_argument("--out")
     p_export.set_defaults(func=cmd_export)
+
+    p_where = sub.add_parser("where", help="打印各客户端配置要填的绝对路径与片段")
+    p_where.add_argument("--json", action="store_true")
+    p_where.set_defaults(func=cmd_where)
 
     return parser
 

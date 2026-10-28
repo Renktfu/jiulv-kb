@@ -59,6 +59,26 @@ jiulv autostart off     # 卸掉，一条命令，不留残渣
 出问题先跑 `jiulv doctor`：版本、路径、依赖、编码、每个来源在不在、库能不能读，
 一条命令全打出来，比逐项猜快。
 
+## 文档
+
+先读哪份，看你要解决什么。
+
+[`docs/USAGE.md`](docs/USAGE.md) 使用说明。怎么启动、界面上每一块是干什么的、写一篇稿的七步顺序、命令行全部命令、资料怎么放、备份与换机、常见问题。**第一次用读这份。**
+
+[`docs/LLM.md`](docs/LLM.md) 接到大模型上。三种接法（MCP、HTTP + function calling、OpenAPI 导入）分别怎么配，十一个工具各在什么时候调，可以直接复制的系统提示词，排错清单。想让 Claude、Cursor、Codex、DeepSeek 用上这套库，读这份。
+
+[`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) 四端速查。熟手复制配置用，详细说明都在 LLM.md。
+
+[`docs/CONNECT.md`](docs/CONNECT.md) 怎么把散在硬盘上的资料库连进来，探测规则和手写覆盖。
+
+[`docs/API.md`](docs/API.md) 接口定义，每个端点的参数、返回、容易用错的地方。
+
+[`docs/INGEST.md`](docs/INGEST.md) 收录规则，目录怎么起名、等级怎么标、钩子七字段怎么写。
+
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 数据结构与设计取舍，想改代码先看这份。
+
+[`docs/WINDOWS.md`](docs/WINDOWS.md) Windows 交接文档，写给「在 Windows 上接手这个仓库的人或 AI」。
+
 ### Windows
 
 同一套代码在 Windows 上也能跑，但有几个只在 Windows 上才发作的坑（控制台代码页、
@@ -144,11 +164,12 @@ cmd 的老解析器对孤立 LF 有已知问题，打包时统一转 CRLF。
 
 ## 接 Agent
 
-四端都能接，走的是同一个 MCP server（stdio），工具名一致。
+三条路，选一条。完整步骤和每个客户端的配置在 [`docs/LLM.md`](docs/LLM.md)：MCP（客户端支持就走这条，最省事）、HTTP + function calling（自己写代码，或框架只认 function calling）、OpenAPI 导入（Dify、Coze、GPTs 这类云端平台）。
+
+先跑这条，把要填的绝对路径和可直接复制的配置打印出来：
 
 ```bash
-jiulv mcp                                  # MCP stdio server
-jiulv tools --format openai                # 导出 function calling schema
+.venv/bin/python -m jiulv.cli where
 ```
 
 工具一共十一个：`kb_search`、`kb_get_doc`、`kb_annotations`、`kb_graph`、`kb_hooks`、`kb_style_rules`、`kb_context_pack`、`kb_stats`、`kb_feedback`、`kb_sync`、`kb_save`。
@@ -157,11 +178,20 @@ jiulv tools --format openai                # 导出 function calling schema
 
 `kb_sync` 和 `kb_save` 是闭环的两头：前者把两个资料库的新增同步进来，后者把 agent 写完的稿子连同「为什么这么写」回写进库。写完就存档，下一篇组稿它已经在参考里了。
 
-各端的配置文件样例在 `examples/` 下，字段含义和放置位置见 `docs/INTEGRATIONS.md`：
+不接 MCP 的框架走这一个端点，返回结构和 MCP 完全一致，不用自己把工具名映射成 REST：
+
+```
+POST /api/v1/tool/{工具名}     请求体就是工具的参数对象
+GET  /api/v1/tools             取 function calling 的 schema
+```
+
+样例都在 `examples/` 下，字段含义和放置位置见 `docs/LLM.md`：
 
 - `examples/workbuddy/mcp.json` → `~/.workbuddy/mcp.json`，改完要在连接器管理页点「信任」
 - `examples/openclaw/mcp.json` → OpenClaw 的 mcpServers 配置
 - `examples/codex/config.toml` → `~/.codex/config.toml` 的 `[mcp_servers.jiulv]`
+- `examples/function-calling/agent_loop.py` → 完整的 function calling 循环，任何 OpenAI 兼容模型能跑
+- `examples/openapi/jiulv-mini.yaml` → 给 Dify / Coze / GPTs 导入的精简 OpenAPI
 - `examples/deepseek-harness/tools.json` → 只认 function calling 的框架直接用这份 schema
 - `examples/http/client.py` → 不接 MCP，直接调 REST
 
@@ -187,6 +217,8 @@ Agent 会自己取规则、挑钩子、找同地区爆款结构，再按提示�
 - `GET /api/v1/connectors` 本机探测到哪些库（含没连的）
 - `POST /api/v1/sync` 增量同步，指纹没变会返回 `skipped: true`
 - `POST /api/v1/inbox` 回写一篇稿子进库，立刻可检索
+- `GET /api/v1/tools` 工具 schema，`format=openai` 是 function calling 那套，`format=mcp` 是原始 inputSchema
+- `POST /api/v1/tool/{name}` 按工具名直接执行，返回结构与 MCP 一致，给不接 MCP 的框架用
 - `GET /api/v1/inbox` 回写池最近条目
 
 鉴权是请求头 `X-API-Key` 或 `Authorization: Bearer`。`security.api_keys` 留空时本机访问不需要密钥，适合单机使用；要给团队共用就配上密钥，并把 `allow_localhost_without_key` 关掉。
@@ -238,9 +270,9 @@ scripts/          双击启动：jiulv-start.command（macOS）/ jiulv-start.bat
   mcp_server.py   MCP stdio server（纯标准库）
   cli.py          命令行
   web/            前端（零构建，原生 JS）
-docs/             架构、接口、接入、收录、连接方式、Windows 交接
-examples/         四端接入样例
-tests/            82 个测试，跑 pytest 即可
+docs/             使用说明、接入大模型、架构、接口、收录、连接方式、Windows 交接
+examples/         各端接入样例（MCP 配置、function calling 循环、OpenAPI）
+tests/            101 个测试，跑 pytest 即可
 ```
 
 ## 设计取舍

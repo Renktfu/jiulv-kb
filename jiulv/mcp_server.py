@@ -389,6 +389,9 @@ class Server:
         try:
             data = db.stats(conn)
             data["facets"] = search_mod.facets(conn)
+            # 和 /api/v1/stats 保持同一口径：docs 是收录条数，unique_docs 是去掉各来源
+            # 副本之后的内容数。走 MCP 的 Agent 和走 HTTP 的脚本看到的数要一样。
+            data["unique_docs"] = search_mod.count_unique_docs(conn)
             return data
         finally:
             conn.close()

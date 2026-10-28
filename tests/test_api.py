@@ -145,3 +145,35 @@ def test_mcp_handshake_and_tools(client: TestClient, tmp_path: Path):
 def test_mcp_notification_gets_no_response(client: TestClient):
     server = Server(client.app.state.config)
     assert server.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
+
+
+# ---------------------------------------------------- 工具网关（function calling 用）
+
+
+def test_tools_schema_endpoint(client: TestClient):
+    openai_style = client.get("/api/v1/tools").json()
+    assert openai_style[0]["type"] == "function"
+    names = [item["function"]["name"] for item in openai_style]
+    assert "kb_context_pack" in names and "kb_save" in names
+
+    mcp_style = client.get("/api/v1/tools", params={"format": "mcp"}).json()
+    assert "inputSchema" in mcp_style[0]
+
+
+def test_tool_gateway_returns_mcp_shape(client: TestClient):
+    """走 HTTP 调工具，返回结构必须和 MCP 一致。
+
+    这条是给只认 function calling 的平台兜底的约定：schema、参数、返回三样都对齐，
+    接的时候就不需要再写一层「工具名 → REST 端点」的映射。
+    """
+    via_http = client.post("/api/v1/tool/kb_search", json={"query": "瑞吉"}).json()
+    server = Server(client.app.state.config)
+    via_mcp = server.dispatch("kb_search", {"query": "瑞吉"})
+    assert via_http["total"] == via_mcp["total"]
+    # MCP 版把文档字段摊平了，没有 doc 这一层，网关必须一样
+    assert via_http["hits"][0]["title"] == via_mcp["hits"][0]["title"]
+    assert "doc" not in via_http["hits"][0]
+
+
+def test_tool_gateway_unknown_tool(client: TestClient):
+    assert client.post("/api/v1/tool/nope", json={}).status_code == 404
