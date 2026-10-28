@@ -220,7 +220,7 @@ def ingest(
                 continue
             decision = "add" if row is None else "update"
 
-            meta = extract_meta(text, rel_path, path.stem)
+            meta = extract_meta(text, rel_path, path.stem, src["name"])
             payload = {
                 "uid": uid,
                 "source": src["name"],

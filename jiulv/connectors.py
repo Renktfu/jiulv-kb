@@ -117,6 +117,14 @@ PROFILES: List[Profile] = [
         hint="写手/审稿/交付各 agent 的产出与过程稿",
     ),
     Profile(
+        profile="oc-archive",
+        title="OpenCLaw 笔记归档",
+        group="openclaw",
+        globs=["{oc}/workspace/projects/xhs-archive"],
+        select="single",
+        hint="账号全部笔记的归档：正文 md、图内文案转录、爆款 CSV",
+    ),
+    Profile(
         profile="oc-projects",
         title="OpenCLaw 项目库",
         group="openclaw",
@@ -428,9 +436,30 @@ def connect(
         result["written"] = ""
         return result
 
-    path = write_sources_file(config, [c.as_source() for c in picked])
+    path = write_sources_file(config, _merge_with_existing(config, picked))
     result["written"] = str(path)
     return result
+
+
+def _merge_with_existing(config, picked: List[Candidate]) -> List[Dict[str, Any]]:
+    """把本次新连的和原有的合并，别用本次结果覆盖整个文件。
+
+    `picked` 只装这次新探到的条目。之前直接拿它写盘，于是：
+
+    一是第二次 connect 会把第一次写进去的来源全清掉，因为它们在本次里
+    的判定是「已连」而不是「新连」；
+    二是带 `--only` 连一条，sources.yaml 就只剩那一条，其余十来个来源
+    静默消失。用户看着 connect 成功，实际库在下一轮同步后只剩一小半内容。
+
+    原条目一律保留（包括目录暂时不在的），要不要启用由 `enabled` 控制。
+    """
+    picked_paths = {path_key(c.path) for c in picked}
+    kept = [
+        entry
+        for entry in _source_entries(config.base_dir)
+        if entry.get("path") and path_key(str(entry["path"])) not in picked_paths
+    ]
+    return kept + [c.as_source() for c in picked]
 
 
 def status(config) -> Dict[str, Any]:

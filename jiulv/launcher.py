@@ -180,10 +180,11 @@ def start(
     if watch_enabled:
         from . import sync as sync_mod
 
-        every = int(interval or config.get("connect", "watch_interval", default=120))
+        # interval 传下去的是 None 时，watch 每轮跟配置里的 watch_interval 走，
+        # 改配置下一轮就按新间隔跑；命令行显式给了 --interval 才盖住配置
         threading.Thread(
             target=sync_mod.watch,
-            kwargs={"config": config, "interval": every, "logger": say},
+            kwargs={"config": config, "interval": interval, "logger": say},
             daemon=True,
             name="jiulv-watch",
         ).start()

@@ -1,5 +1,5 @@
 """命令行入口：init / connect / sync / watch / start / ingest / search / compose /
-serve / autostart / mcp / stats / doctor / export。"""
+serve / autostart / mcp / stats / sources / doctor / export。"""
 
 from __future__ import annotations
 
@@ -294,6 +294,66 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def _display_width(text: str) -> int:
+    """终端里的显示宽度。中文占两列，用 len() 对齐会歪。"""
+    import unicodedata
+
+    return sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in text)
+
+
+def cmd_sources(args: argparse.Namespace) -> int:
+    """列出每个来源：在不在、收了多少篇、上次扫到什么时候。
+
+    迭代时最常问的两个问题——「我新接的目录进来了吗」「这批新笔记落了几个」
+    ——有了这张表就不用去翻数据库。
+    """
+    from . import sync as sync_mod
+
+    config = load_config(args.config)
+    state = sync_mod.read_state(config)
+    indexed = {}
+    if config.db_path.exists():
+        conn = db.open_db(config.db_path)
+        try:
+            indexed = {r["name"]: dict(r) for r in conn.execute("SELECT * FROM sources")}
+        finally:
+            conn.close()
+
+    items = []
+    for src in config.sources:
+        row = indexed.get(src["name"], {})
+        items.append(
+            {
+                "name": src["name"],
+                "group": src.get("group", ""),
+                "path": src["path"],
+                "exists": Path(src["path"]).exists(),
+                "docs": row.get("doc_count", 0),
+                "last_scan": row.get("last_scan", ""),
+            }
+        )
+
+    if args.json:
+        _print({"sources": items, "last_sync": state.get("last_sync", "")})
+        return 0
+
+    total = sum(i["docs"] for i in items)
+    print(f"{len(items)} 个来源，共 {total} 篇；上次同步 {state.get('last_sync', '未同步')}")
+    print()
+    width = max((_display_width(i["name"]) for i in items), default=8)
+    for item in items:
+        flag = "有" if item["exists"] else "缺"
+        scan = (item["last_scan"] or "-")[:16].replace("T", " ")
+        name = item["name"] + " " * max(0, width - _display_width(item["name"]))
+        print(f"  {flag} {item['docs']:>5} 篇  {name}  {scan}  {item['path']}")
+    missing = [i["name"] for i in items if not i["exists"]]
+    if missing:
+        print()
+        print("目录不在了：" + "、".join(missing))
+        print("路径被移动或改名是最常见的故障，跑 jiulv doctor 看详情。")
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     """环境自检。出问题时先跑这个，把输出整段贴出来就能定位。"""
     from . import doctor
@@ -582,6 +642,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_stats = sub.add_parser("stats", help="索引统计")
     p_stats.set_defaults(func=cmd_stats)
+
+    p_sources = sub.add_parser("sources", help="列出来源：路径、篇数、上次扫描")
+    p_sources.add_argument("--json", action="store_true")
+    p_sources.set_defaults(func=cmd_sources)
 
     p_doctor = sub.add_parser("doctor", help="环境自检：编码、路径、依赖、库状态")
     p_doctor.add_argument("--json", action="store_true")

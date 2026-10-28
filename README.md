@@ -69,6 +69,8 @@ jiulv autostart off     # 卸掉，一条命令，不留残渣
 
 [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) 四端速查。熟手复制配置用，详细说明都在 LLM.md。
 
+[`docs/ITERATE.md`](docs/ITERATE.md) 迭代说明。新笔记怎么写进已连的目录、放错地方怎么接、改完配置为什么不用重启、怎么确认真的进来了，以及今天踩的四个坑。
+
 [`docs/CONNECT.md`](docs/CONNECT.md) 怎么把散在硬盘上的资料库连进来，探测规则和手写覆盖。
 
 [`docs/API.md`](docs/API.md) 接口定义，每个端点的参数、返回、容易用错的地方。
@@ -270,7 +272,7 @@ scripts/          双击启动：jiulv-start.command（macOS）/ jiulv-start.bat
   mcp_server.py   MCP stdio server（纯标准库）
   cli.py          命令行
   web/            前端（零构建，原生 JS）
-docs/             使用说明、接入大模型、架构、接口、收录、连接方式、Windows 交接
+docs/             使用说明、迭代说明、接入大模型、架构、接口、收录、连接方式、Windows 交接
 examples/         各端接入样例（MCP 配置、function calling 循环、OpenAPI）
 tests/            101 个测试，跑 pytest 即可
 ```

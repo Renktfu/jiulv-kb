@@ -6,7 +6,7 @@ import copy
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import yaml
 
@@ -61,6 +61,10 @@ DEFAULTS: Dict[str, Any] = {
 _ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
 
 
+class ConfigError(Exception):
+    """配置文件读不了或写坏了。调用方应当保留上一版配置，不要当成"空配置"。"""
+
+
 def _merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
     out = copy.deepcopy(base)
     for key, value in (override or {}).items():
@@ -87,6 +91,8 @@ class Config:
         self.data = data
         self.base_dir = base_dir
         self.path = path
+        # 配置文件本身的问题（YAML 写坏了之类）。空表示没问题。
+        self.errors: List[str] = []
     # --- 便捷访问 ---
     def __getitem__(self, key: str) -> Any:
         return self.data[key]
@@ -101,8 +107,15 @@ class Config:
 
     def reload(self) -> "Config":
         """重新读盘。`jiulv connect` 刚写完 sources.yaml 时用得上——
-        不重读的话本次进程里还是空的来源列表。"""
+        不重读的话本次进程里还是空的来源列表。
+
+        配置本身有错就抛 ConfigError，且**不动**当前内存里的数据。
+        这一点不能省：sources.yaml 写坏时若当作"来源变空"处理，
+        下一轮同步会按"来源已删除"把所有文档清掉，一次手滑清空整库。
+        """
         fresh = load_config(self.path)
+        if fresh.errors:
+            raise ConfigError("；".join(fresh.errors))
         self.data, self.base_dir, self.path = fresh.data, fresh.base_dir, fresh.path
         return self
 
@@ -132,16 +145,25 @@ class Config:
         return out
 
 
-def _load_generated_sources(base_dir: Path) -> List[Dict[str, Any]]:
-    """读 `jiulv connect` 生成的 sources.yaml。"""
+def _load_generated_sources(base_dir: Path) -> Tuple[List[Dict[str, Any]], str]:
+    """读 `jiulv connect` 生成的 sources.yaml。返回 (来源, 错误)。
+
+    解析失败必须让调用方知道。以前这里吞掉异常返回空列表，于是
+    "YAML 写坏"和"一个来源都没连"长得一模一样，同步时按后者处理就是清库。
+    """
     path = base_dir / "sources.yaml"
     if not path.exists():
-        return []
+        return [], ""
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except Exception:
-        return []
-    return [s for s in (data.get("sources") or []) if isinstance(s, dict) and s.get("path")]
+    except Exception as exc:
+        return [], f"sources.yaml 解析失败：{exc}"
+    if not isinstance(data, dict):
+        return [], "sources.yaml 结构不对：顶层应该是键值，不是列表"
+    items = data.get("sources") or []
+    if not isinstance(items, list):
+        return [], "sources.yaml 里的 sources 应该是列表"
+    return [s for s in items if isinstance(s, dict) and s.get("path")], ""
 
 
 def _merge_sources(manual: List[Dict[str, Any]], extra: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -179,15 +201,29 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
                 break
 
     data: Dict[str, Any] = {}
+    read_error = ""
     if resolved and resolved.exists():
-        with open(resolved, "r", encoding="utf-8") as fh:
-            data = yaml.safe_load(fh) or {}
+        try:
+            with open(resolved, "r", encoding="utf-8") as fh:
+                data = yaml.safe_load(fh) or {}
+            if not isinstance(data, dict):
+                read_error = "config.yaml 结构不对：顶层应该是键值，不是列表"
+                data = {}
+        except Exception as exc:
+            read_error = f"config.yaml 解析失败：{exc}"
+            data = {}
         base_dir = resolved.parent
 
     merged = _expand(_merge(DEFAULTS, data))
     base = Path(base_dir)
+    generated, error = _load_generated_sources(base)
     merged["sources"] = _merge_sources(
         merged.get("sources") or [],
-        [_expand(item) for item in _load_generated_sources(base)],
+        [_expand(item) for item in generated],
     )
-    return Config(merged, base_dir=base, path=resolved)
+    cfg = Config(merged, base_dir=base, path=resolved)
+    if read_error:
+        cfg.errors.append(read_error)
+    if error:
+        cfg.errors.append(error)
+    return cfg

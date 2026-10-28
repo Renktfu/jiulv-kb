@@ -22,6 +22,7 @@ TYPE_RULES: List[Tuple[Tuple[str, ...], str]] = [
     (("06_每日采集产出", "每日采集", "daily"), "daily"),
     (("room-types", "roomtypes", "选房", "房型"), "guide"),
     (("02_地区素材库", "素材库", "viral_posts", "material_export", "bobo_hotel_diary", "素材"), "note"),
+    (("xhs-archive", "笔记归档", "正文归档"), "note"),
 ]
 
 REGION_KEYWORDS: Dict[str, Tuple[str, ...]] = {
@@ -41,6 +42,9 @@ REGION_KEYWORDS: Dict[str, Tuple[str, ...]] = {
 }
 
 GRADE_RE = re.compile(r"(?:爆款等级[：:]\s*)?([SAB])级", re.I)
+# 没有人工分级时按点赞数兜底，否则新归档的笔记等级为空，按等级排序会沉到底。
+# 阈值取自有人工分级的样本：S 级样本点赞多在 500 以上，A 级 100 往上，B 级 30 起步。
+GRADE_BY_LIKES = ((500, "S"), (100, "A"), (30, "B"))
 FIELD_RES = {
     "title": re.compile(r"^[\-\*>\s]*\*{0,2}标题\*{0,2}[：:]\s*(.+?)\s*$", re.M),
     "author": re.compile(r"^[\-\*>\s]*\*{0,2}作者\*{0,2}[：:]\s*(.+?)\s*$", re.M),
@@ -52,6 +56,21 @@ FIELD_RES = {
     "metrics": re.compile(r"^[\-\*>\s]*\*{0,2}互动数据\*{0,2}[：:]\s*(.+?)\s*$", re.M),
 }
 METRIC_PAIR_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(万)?\s*(赞|收藏|评论|点赞|阅读|播放|转发|评|藏)")
+# 归档笔记把单位写在前面：「观看：4501　点赞：103　收藏：177」。
+# 只认「数字+单位」的写法会整体错位——把 4501（观看）当成点赞，
+# 再把 103（点赞）当成收藏，整篇的互动数据全错一层。
+#
+# 只收双字单位，且要求单位后紧跟冒号或空白。「13 赞 66 收藏」这种后缀写法里，
+# 单字「赞」后面正好跟着下一个数，收进来就会把收藏数读成点赞数。
+METRIC_LEAD_RE = re.compile(
+    r"(?P<unit>观看|浏览量|阅读|播放|转发|收藏|评论|点赞)"
+    r"(?:[：:]\s*|\s+)"
+    r"(?P<num>\d+(?:\.\d+)?)\s*(?P<wan>万)?"
+)
+# 日期里的「16」「12:22」会被当成点赞数，解析前先抹掉
+DATE_NOISE_RE = re.compile(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?|\d{1,2}:\d{2}(?::\d{2})?")
+# 千分位：563,626 不抹掉逗号只会被读成 563
+THOUSANDS_RE = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
 HEADING_TITLE_RE = re.compile(r"^#{1,3}\s*笔记\s*\d*[：:]\s*(.+?)\s*$", re.M)
 FIRST_H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.M)
 
@@ -73,16 +92,19 @@ class DocMeta:
     summary: str = ""
 
 
-INDEX_NAME_HINTS = ("索引", "总览", "目录", "导航", "readme", "README")
+INDEX_NAME_HINTS = ("索引", "总览", "目录", "导航", "readme", "README", "INDEX")
 # 回写池的目录名自带类型（data/inbox/inbox_hook/2026-10-28/xxx.md），优先按它判
 INBOX_KIND_RE = re.compile(r"(?:^|/)inbox_(note|hook|rule|fact|guide|ops|daily|index)(?:/|$)")
 
 
-def classify(rel_path: str, text: str) -> str:
+def classify(rel_path: str, text: str, source_name: str = "") -> str:
     """按目录判断类型。只看目录不看文件名——文件名里的「选房」是内容词，不是分类词。
 
     例外是索引页：它躺在「02_地区素材库」这类内容目录里，光看目录会被当成一篇笔记，
     然后因为罗列了所有标题，在检索里稳压真正的笔记一头。
+
+    `source_name` 也参与判断：接一个「笔记归档」这种目录，「正文/xxx.md」的
+    rel_path 里根本没有可识别的目录名，光看路径只能落到 misc。
     """
     name = rel_path.replace("\\", "/").rsplit("/", 1)[-1]
     if any(hint in name for hint in INDEX_NAME_HINTS):
@@ -91,7 +113,7 @@ def classify(rel_path: str, text: str) -> str:
     if inbox_kind:
         return inbox_kind.group(1)
     parts = rel_path.replace("\\", "/").split("/")
-    dirs = "/".join(parts[:-1])
+    dirs = "/".join(parts[:-1]) + "/" + source_name
     for keywords, doc_type in TYPE_RULES:
         if any(k in dirs for k in keywords):
             return doc_type
@@ -116,19 +138,65 @@ def detect_region(text: str, rel_path: str = "") -> str:
     return best if best_hits >= 1 else ""
 
 
+METRIC_KEYS = {
+    "赞": "likes", "点赞": "likes", "收藏": "saves", "藏": "saves",
+    "评论": "comments", "评": "comments",
+    "阅读": "views", "播放": "views", "观看": "views", "浏览量": "views",
+    "转发": "shares",
+}
+
+
 def parse_metrics(raw: str) -> Dict[str, float]:
-    """把「839赞 / 1131收藏 / 33评论」或「146 评论，13 赞 66 收藏」解析成数字。"""
+    """解析互动数据，两种写法都认。
+
+    数字在前：「839赞 / 1131收藏 / 33评论」
+    单位在前：「观看：4501　点赞：103　收藏：177」
+
+    先按单位在前跑一轮，再把已匹配的片段抹掉跑数字在前那一轮，
+    否则「4501　点赞」会在第二轮被读成「4501 个赞」，数据整体错位一层。
+    """
+    text = THOUSANDS_RE.sub("", raw or "")
+    text = DATE_NOISE_RE.sub(" ", text)
     out: Dict[str, float] = {}
-    mapping = {"赞": "likes", "点赞": "likes", "收藏": "saves", "藏": "saves",
-               "评论": "comments", "评": "comments",
-               "阅读": "views", "播放": "views", "转发": "shares"}
-    for num, wan, unit in METRIC_PAIR_RE.findall(raw or ""):
-        key = mapping.get(unit)
+
+    for unit, num, wan in METRIC_LEAD_RE.findall(text):
+        key = METRIC_KEYS.get(unit)
+        if not key:
+            continue
+        value = float(num) * (10000 if wan else 1)
+        out[key] = max(out.get(key, 0), value)
+
+    rest = METRIC_LEAD_RE.sub(" ", text)
+    for num, wan, unit in METRIC_PAIR_RE.findall(rest):
+        key = METRIC_KEYS.get(unit)
         if not key:
             continue
         value = float(num) * (10000 if wan else 1)
         out[key] = max(out.get(key, 0), value)
     return out
+
+
+def grade_from_likes(likes: float) -> str:
+    for floor, grade in GRADE_BY_LIKES:
+        if likes >= floor:
+            return grade
+    return ""
+
+
+PUBLISH_DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)")
+
+
+def clean_publish(value: str) -> str:
+    """归档笔记把发布时间和互动数据写在同一行：
+
+        - 发布时间：2026-06-16　点赞：896　笔记ID：6a32e1c4...
+
+    原样收下会让 published_at 变成一整串。只取日期时间那一段。
+    """
+    m = PUBLISH_DATE_RE.search(value or "")
+    if m:
+        return m.group(1)
+    return re.split(r"[\s\u3000｜|,，]+", (value or "").strip())[0]
 
 
 def _first_line_title(text: str) -> str:
@@ -147,12 +215,16 @@ def _first_line_title(text: str) -> str:
 
 def _clean_filename(stem: str) -> str:
     name = re.sub(r"^[SABsab]_+", "", stem)
+    # 归档笔记的命名是「896赞-写了一个通宵-三亚酒店优劣势分析」。
+    # 必须抢在下面那条「去掉尾部 N 赞 标记」的规则前面剥掉前缀，
+    # 否则那条规则会从开头一路删到行尾，文件名整个被清空。
+    name = re.sub(r"^\d+\s*赞[_\-\s]*", "", name)
     name = re.sub(r"^(笔记|第)?\d+[_\-\s]*", "", name)
     name = re.sub(r"[，,]?\s*(高价值|高讨论度|高赞|大爆款|\d+\s*评论|\d+\s*赞)+.*$", "", name)
     return name.strip(" _-")[:80]
 
 
-def extract_meta(text: str, rel_path: str, stem: str) -> DocMeta:
+def extract_meta(text: str, rel_path: str, stem: str, source_name: str = "") -> DocMeta:
     meta = DocMeta()
     head = text[:6000]
     for key, regex in FIELD_RES.items():
@@ -163,7 +235,7 @@ def extract_meta(text: str, rel_path: str, stem: str) -> DocMeta:
         if key == "region":
             meta.region = value
         elif key == "publish":
-            meta.published_at = value
+            meta.published_at = clean_publish(value)
         elif key == "metrics":
             meta.metrics = parse_metrics(value)
         elif key == "url":
@@ -181,11 +253,15 @@ def extract_meta(text: str, rel_path: str, stem: str) -> DocMeta:
     if not meta.metrics:
         meta.metrics = parse_metrics(head[:2000])
 
+    # 分类要在分级之前算：索引页罗列全库互动数据，按点赞推等级会推出一个假的 S 级
+    meta.doc_type = classify(rel_path, text, source_name)
+
     grade_match = GRADE_RE.search(head) or GRADE_RE.search(rel_path)
     if grade_match:
         meta.grade = grade_match.group(1).upper()
+    elif meta.metrics.get("likes") and meta.doc_type != "index":
+        meta.grade = grade_from_likes(meta.metrics["likes"])
 
-    meta.doc_type = classify(rel_path, text)
     meta.title = meta.title or _first_line_title(text) or _clean_filename(stem)
     # 全量快照这种一个文件装几百篇的，取第一个小标题当标题会张冠李戴，用文件名更准
     if text.count("\n### 笔记") > 3 or text.count("\n## 笔记") > 3:

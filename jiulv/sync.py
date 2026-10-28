@@ -180,19 +180,56 @@ def sync_once(
     }
 
 
+def _reload_config(config: Config, say) -> Config:
+    """每轮重读一次配置，让新接的来源不用重启就生效。
+
+    加来源最顺手的做法是跑 `jiulv connect` 或直接改 sources.yaml，而常驻进程
+    如果只在启动时读一次盘，新目录要等到重启才会被扫到。用户看到的是
+    「我明明接上了，怎么还是没进来」，然后开始怀疑入库坏了。
+    """
+    before = [s["name"] for s in config.sources]
+    try:
+        config.reload()
+    except Exception as exc:  # 手改坏了 YAML 也不能让监听到此为止
+        say(f"[{_now_iso()}] 重读配置失败，继续用上一版：{exc}")
+        return config
+
+    after = [s["name"] for s in config.sources]
+    if after != before:
+        say(f"[{_now_iso()}] 配置变了：{len(before)} → {len(after)} 个来源")
+        for name in after:
+            if name not in before:
+                say(f"  + {name}")
+        for name in before:
+            if name not in after:
+                say(f"  - {name}")
+    return config
+
+
 def watch(
     config: Config,
-    interval: int = 120,
+    interval: Optional[int] = None,
     logger=None,
     max_rounds: Optional[int] = None,
+    reload: bool = True,
 ) -> None:
-    """长期驻留：隔一会儿看一眼，变了就收录。Ctrl-C 退出。"""
+    """长期驻留：隔一会儿看一眼，变了就收录。Ctrl-C 退出。
+
+    `interval=None` 表示跟着配置走：每轮重读 `connect.watch_interval`，
+    改了配置下轮就按新间隔跑，不用重启。显式传数字则以传入的为准。
+    """
     say = logger or (lambda msg: None)
     rounds = 0
-    say(f"开始监听 {len(config.sources)} 个来源，间隔 {interval}s")
+
+    def _interval(cfg: Config) -> int:
+        return max(5, int(interval or cfg.get("connect", "watch_interval", default=120)))
+
+    say(f"开始监听 {len(config.sources)} 个来源，间隔 {_interval(config)}s")
     try:
         while True:
             rounds += 1
+            if reload:
+                config = _reload_config(config, say)
             try:
                 result = sync_once(config, logger=logger)
                 if result.get("skipped"):
@@ -208,6 +245,6 @@ def watch(
                 say(f"[{_now_iso()}] 同步失败：{exc}")
             if max_rounds and rounds >= max_rounds:
                 return
-            time.sleep(max(5, interval))
+            time.sleep(_interval(config))
     except KeyboardInterrupt:
         say("已停止监听")
