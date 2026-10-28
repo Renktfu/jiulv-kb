@@ -219,6 +219,20 @@ MACOS_README = """macOS 使用说明
     .venv/bin/python -m jiulv.cli connect     重新探测资料库
     .venv/bin/python -m jiulv.cli --help      全部命令
 
+资料怎么更新
+------------
+不用重启，也不用管索引，三种情况各一条路：
+
+  新笔记        丢进已经接过的资料库目录，两分钟内自己进来
+  整份新资料    拆成单篇放进 data/library/<分类>/，再跑一次 sync
+  改过或删掉    改完删完同样跑一次 sync，索引跟着变
+
+     .venv/bin/python -m jiulv.cli sync      立刻同步一次
+     .venv/bin/python -m jiulv.cli sources   每个目录多少篇、上次什么时候扫的
+
+还没接自己的目录？先跑 connect，或者照 config.yaml 里注释的样子自己加一条。
+一个来源都没接的时候 sync 会直接说「还没有接任何资料目录」，不会假装成功。
+
 数据在哪
 --------
     data/kb.sqlite3     索引（删掉会重新建，不会丢原始文件）
@@ -301,6 +315,20 @@ WINDOWS_README = """Windows 使用说明
     .venv\\Scripts\\python.exe -m jiulv.cli sync         只同步一次
     .venv\\Scripts\\python.exe -m jiulv.cli doctor       环境体检，出问题先跑
     .venv\\Scripts\\python.exe -m jiulv.cli --help       全部命令
+
+资料怎么更新
+------------
+不用重启，也不用管索引，三种情况各一条路：
+
+  新笔记        丢进已经接过的资料库目录，两分钟内自己进来
+  整份新资料    拆成单篇放进 data\\library\\<分类>\\，再跑一次 sync
+  改过或删掉    改完删完同样跑一次 sync，索引跟着变
+
+    .venv\\Scripts\\python.exe -m jiulv.cli sync      立刻同步一次
+    .venv\\Scripts\\python.exe -m jiulv.cli sources   每个目录多少篇、上次什么时候扫的
+
+还没接自己的目录？先跑 connect，或者照 config.yaml 里注释的样子自己加一条。
+一个来源都没接的时候 sync 会直接说「还没有接任何资料目录」，不会假装成功。
 
 数据在哪
 --------

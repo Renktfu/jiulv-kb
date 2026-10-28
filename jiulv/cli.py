@@ -142,6 +142,14 @@ def cmd_sync(args: argparse.Namespace) -> int:
     from . import sync as sync_mod
 
     config = load_config(args.config)
+    # 一个来源都没接时，sync 只会说「无变化」——空库配一句「无变化」，
+    # 人会以为同步成功了，然后对着空白页面找不到原因。
+    if not config.sources:
+        print("还没有接任何资料目录，所以没有东西可同步。二选一：")
+        print("  jiulv connect      探测本机的 WorkBuddy / OpenClaw 资料库（推荐）")
+        print("  jiulv init         生成 config.yaml，再手改 sources 里的 path")
+        print("接上之后重新跑 jiulv sync。")
+        return 1
     result = sync_mod.sync_once(
         config,
         force=args.force,
@@ -162,6 +170,10 @@ def cmd_sync(args: argparse.Namespace) -> int:
     )
     if result.get("changed"):
         print("变化来源：" + "、".join(result["changed"]))
+    short = report.get("short") or 0
+    if short:
+        names = "、".join(f["path"] for f in report.get("short_files") or [])
+        print(f"另有 {short} 篇正文不足 20 字没进库：{names}" + ("…" if short > 10 else ""))
     return 0
 
 

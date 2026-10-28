@@ -44,6 +44,9 @@ class IngestReport:
     updated: int = 0
     skipped: int = 0
     failed: List[Dict[str, str]] = field(default_factory=list)
+    # 正文不足 20 字被丢掉的篇目。这类文件不收是合理的（多半是还没写完的
+    # 空壳），但必须报出来——静默吞掉的话，人会以为「丢进去就进来了」。
+    short: List[Dict[str, object]] = field(default_factory=list)
     hooks: int = 0
     removed: int = 0
     annotations: int = 0
@@ -56,6 +59,8 @@ class IngestReport:
             "added": self.added,
             "updated": self.updated,
             "skipped": self.skipped,
+            "short": len(self.short),
+            "short_files": self.short[:10],
             "removed": self.removed,
             "hooks": self.hooks,
             "annotations": self.annotations,
@@ -210,6 +215,9 @@ def ingest(
                 continue
 
             if not text or len(text.strip()) < 20:
+                report.short.append({"path": rel_path, "chars": len(text.strip())})
+                if verbose and logger:
+                    logger(f"  太短跳过 {rel_path}（{len(text.strip())} 字）")
                 report.skipped += 1
                 continue
 

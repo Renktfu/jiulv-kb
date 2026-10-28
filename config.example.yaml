@@ -18,25 +18,18 @@ connect:
 
 # 收录来源。每个 source 是一个目录，递归扫描 include 里的格式。
 # group 只用于分组统计和筛选，随便起名。
+#
+# 刚拿到包时这里只有「自有资料库」一条是能用的（它跟着包走）。想收录自己
+# 电脑上的笔记，二选一：
+#   1) 跑 jiulv connect，它探测 WorkBuddy / OpenClaw 的资料库，结果写进
+#      同目录 sources.yaml，不用改这个文件；
+#   2) 照着下面注释里的样子手写一条，把 path 换成你自己的目录。
+# 路径不存在不会报错中断，只在日志里打一行「跳过来源 … 目录不存在」，
+# jiulv sources 里那一行会标「缺」。
 sources:
-  - name: 小红书酒旅资料库
-    group: workbuddy
-    path: ~/WorkBuddy/2026-10-16-16-08-58/小红书酒旅资料库
-    include: ["**/*.md", "**/*.txt", "**/*.docx", "**/*.pdf", "**/*.xlsx"]
-    exclude:
-      - "**/_raw/**"
-      - "**/node_modules/**"
-      - "**/.*/**"
-      - "**/~$*"
-
-  - name: OpenClaw 参考库
-    group: openclaw
-    path: ~/.openclaw/workspace/reference
-    include: ["**/*.md", "**/*.txt", "**/*.docx", "**/*.pdf"]
-    exclude: ["**/node_modules/**", "**/.git/**"]
-
   # 自有资料库：外部拿到的整份资料，按主题拆成单篇放在这里。
   # group 用 library，跟「爆款笔记」区分开——这些是查证用的资料，不是可发布的稿。
+  # 相对路径以 config.yaml 所在目录为基准，跟着包走，不用改。
   # 详见 docs/USAGE.md「外部整份资料：拆成单篇再放」。
   - name: 自有资料库
     group: library
@@ -44,7 +37,25 @@ sources:
     include: ["**/*.md", "**/*.txt"]
     exclude: ["**/.*/**", "**/~$*"]
 
-  # 想收录自有成片/新批次，再加一条即可
+  # 自己电脑上的笔记库。把 path 改成实际目录再取消注释。
+  # - name: 我的笔记库
+  #   group: workbuddy
+  #   path: ~/WorkBuddy/<你的项目目录>/小红书酒旅资料库
+  #   include: ["**/*.md", "**/*.txt", "**/*.docx", "**/*.pdf", "**/*.xlsx"]
+  #   exclude:
+  #     - "**/_raw/**"
+  #     - "**/node_modules/**"
+  #     - "**/.*/**"
+  #     - "**/~$*"
+
+  # 装了 OpenClaw 的，参考库在下面这个位置，改完取消注释。
+  # - name: OpenClaw 参考库
+  #   group: openclaw
+  #   path: ~/.openclaw/workspace/reference
+  #   include: ["**/*.md", "**/*.txt", "**/*.docx", "**/*.pdf"]
+  #   exclude: ["**/node_modules/**", "**/.git/**"]
+
+  # 自己的成片 / 新批次，再加一条即可
   # - name: 我的文案产出
   #   group: mine
   #   path: ~/Documents/我的文案
