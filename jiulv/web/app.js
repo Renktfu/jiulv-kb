@@ -919,6 +919,7 @@ const GROUP_LABEL = {
   workbuddy: "WorkBuddy",
   openclaw: "OpenCLaw",
   inbox: "回写",
+  library: "资料库",
   default: "自定义",
 };
 
@@ -984,11 +985,13 @@ async function renderSources() {
   head.appendChild(btn);
   view.appendChild(head);
 
-  const groups = { workbuddy: [], openclaw: [], inbox: [], other: [] };
+  // library 要单独成组。不分的话它落进 other，标题显示「自定义」，
+  // 跟「自有资料库」这个名字对不上。
+  const groups = { workbuddy: [], openclaw: [], library: [], inbox: [], other: [] };
   for (const item of data.items) {
     (groups[item.group] || groups.other).push(item);
   }
-  for (const key of ["workbuddy", "openclaw", "inbox", "other"]) {
+  for (const key of ["workbuddy", "openclaw", "library", "inbox", "other"]) {
     const items = groups[key];
     if (!items.length) continue;
     const section = el("div", "bars");
