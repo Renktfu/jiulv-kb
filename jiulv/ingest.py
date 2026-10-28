@@ -45,6 +45,7 @@ class IngestReport:
     failed: List[Dict[str, str]] = field(default_factory=list)
     hooks: int = 0
     removed: int = 0
+    annotations: int = 0
     by_type: Dict[str, int] = field(default_factory=dict)
     duration_s: float = 0.0
 
@@ -56,6 +57,7 @@ class IngestReport:
             "skipped": self.skipped,
             "removed": self.removed,
             "hooks": self.hooks,
+            "annotations": self.annotations,
             "failed": self.failed[:30],
             "failed_total": len(self.failed),
             "by_type": self.by_type,
@@ -133,6 +135,7 @@ def ingest(
         conn.executescript(
             "DELETE FROM chunks_fts; DELETE FROM chunks; DELETE FROM docs_fts;"
             "DELETE FROM docs; DELETE FROM hooks; DELETE FROM embeddings;"
+            "DELETE FROM annotations; DELETE FROM doc_concepts; DELETE FROM concepts;"
         )
         conn.commit()
 
@@ -267,6 +270,14 @@ def ingest(
     conn.execute("INSERT INTO meta(key,value) VALUES('last_ingest',?) "
                  "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (now_iso(),))
     conn.commit()
+
+    # 注解与概念图都从 docs.content 现算，不读盘也不联网，全量重跑比维护增量状态便宜
+    from . import annotate as annotate_mod
+    from . import graph as graph_mod
+
+    report.annotations = int(annotate_mod.run(conn, logger=logger).get("total", 0))
+    graph_mod.build(conn, config, logger=logger)
+
     report.duration_s = (datetime.now() - started).total_seconds()
     return report
 

@@ -57,6 +57,55 @@
   {
     "type": "function",
     "function": {
+      "name": "kb_annotations",
+      "description": "把一个概念（酒店/地区/人群/痛点/手法）下所有笔记的注解汇总去重。返回「必须写的保留意见」「可写的卖点」「预订启示」「采集点评」。写某家酒店前先调一次，等于把库里关于它的判断全摊在桌上。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "focus": {
+            "type": "string",
+            "description": "概念引用，例如 hotel:三亚保利瑰丽、region:海南、pain:P2"
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "limit": {
+            "type": "integer",
+            "default": 24
+          }
+        },
+        "required": [
+          "focus"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "kb_graph",
+      "description": "知识图谱：不传 focus 返回概念全景（哪些地区/酒店/痛点互相连着），传 focus 返回该节点的一跳邻居。用来找「还有哪些相关的东西」，不是用来检索正文。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "focus": {
+            "type": "string",
+            "description": "hotel:xxx / region:xxx / pain:P2 / d:<uid>"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "kb_hooks",
       "description": "取结构化开头钩子。每条含原文、类型、适用人群、对应痛点、心理机制、期望动作。写标题和第一句时用。",
       "parameters": {

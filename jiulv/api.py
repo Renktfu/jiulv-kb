@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import __version__, compose as compose_mod, db, search as search_mod
+from . import __version__, annotate as annotate_mod, compose as compose_mod, db, graph as graph_mod, search as search_mod
 from .config import Config, load_config
 from .taxonomy import load_taxonomy
 
@@ -197,6 +197,18 @@ def create_app(config_path: str | None = None) -> FastAPI:
         row = conn.execute("SELECT id FROM docs WHERE uid=?", (uid,)).fetchone()
         if row:
             doc["related"] = search_mod.nearby_docs(conn, row["id"], doc.get("region"))
+            # 注解与双向链接：这篇为什么值得学、谁还讲过同一个东西
+            doc["annotations"] = annotate_mod.for_doc(conn, row["id"])
+            doc["concepts"] = graph_mod.doc_concepts(conn, row["id"])
+            doc["backlinks"] = graph_mod.backlinks(conn, row["id"])
+            doc["duplicates"] = max(
+                0,
+                conn.execute(
+                    "SELECT COUNT(*) FROM docs WHERE content_hash=(SELECT content_hash FROM docs WHERE id=?)",
+                    (row["id"],),
+                ).fetchone()[0]
+                - 1,
+            )
         return doc
 
     @app.get("/api/v1/docs/{uid}/raw", tags=["检索"], dependencies=guard)
@@ -205,6 +217,52 @@ def create_app(config_path: str | None = None) -> FastAPI:
         if not doc:
             raise HTTPException(status_code=404, detail="找不到这篇文档")
         return PlainTextResponse(doc.get("content") or "", media_type="text/markdown; charset=utf-8")
+
+    # ------------------------------------------------------------ 图谱
+
+    @app.get("/api/v1/graph", tags=["图谱"], dependencies=guard)
+    def graph_api(
+        focus: Optional[str] = Query(
+            None,
+            description="焦点：`hotel:三亚保利瑰丽` / `pain:P2` / `c:12` / `d:88`。"
+            "不传则返回概念全景图（节点是概念，边是共同出现的笔记数）",
+        ),
+        limit: int = 26,
+        conn=Depends(get_conn),
+    ) -> Dict[str, Any]:
+        if not focus:
+            data = graph_mod.overview(conn, limit=max(10, min(limit * 2, 120)))
+        else:
+            data = graph_mod.subgraph(conn, focus, limit=max(4, min(limit, 60)))
+        data["node_count"] = len(data["nodes"])
+        data["edge_count"] = len(data["edges"])
+        return data
+
+    @app.get("/api/v1/concepts", tags=["图谱"], dependencies=guard)
+    def concepts(
+        kind: Optional[str] = Query(None, description="region/hotel/author/series/audience/pain/hook/technique"),
+        limit: int = 40,
+        conn=Depends(get_conn),
+    ) -> Dict[str, Any]:
+        if kind:
+            items = graph_mod.by_kind(conn, kind, limit=max(1, min(limit, 200)))
+        else:
+            items = [
+                {"kind": r["kind"], "count": r["n"]}
+                for r in conn.execute(
+                    "SELECT kind, COUNT(*) n FROM concepts GROUP BY kind ORDER BY n DESC"
+                )
+            ]
+        return {"items": items, "kinds": graph_mod.CONCEPT_KINDS}
+
+    @app.get("/api/v1/concept/docs", tags=["图谱"], dependencies=guard)
+    def concept_docs(
+        ref: str = Query(..., description="概念引用，例如 hotel:三亚保利瑰丽 或 c:12"),
+        limit: int = 50,
+        offset: int = 0,
+        conn=Depends(get_conn),
+    ) -> Dict[str, Any]:
+        return graph_mod.concept_docs(conn, ref, limit=max(1, min(limit, 200)), offset=offset)
 
     # ------------------------------------------------------------ 结构化素材
 

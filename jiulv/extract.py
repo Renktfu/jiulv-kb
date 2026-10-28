@@ -73,8 +73,18 @@ class DocMeta:
     summary: str = ""
 
 
+INDEX_NAME_HINTS = ("索引", "总览", "目录", "导航", "readme", "README")
+
+
 def classify(rel_path: str, text: str) -> str:
-    """按目录判断类型。只看目录不看文件名——文件名里的「选房」是内容词，不是分类词。"""
+    """按目录判断类型。只看目录不看文件名——文件名里的「选房」是内容词，不是分类词。
+
+    例外是索引页：它躺在「02_地区素材库」这类内容目录里，光看目录会被当成一篇笔记，
+    然后因为罗列了所有标题，在检索里稳压真正的笔记一头。
+    """
+    name = rel_path.replace("\\", "/").rsplit("/", 1)[-1]
+    if any(hint in name for hint in INDEX_NAME_HINTS):
+        return "index"
     parts = rel_path.replace("\\", "/").split("/")
     dirs = "/".join(parts[:-1])
     for keywords, doc_type in TYPE_RULES:

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>酒旅爆款知识库</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-<link rel="stylesheet" href="/assets/style.css" />
+<link rel="stylesheet" href="/assets/style.css?v=2" />
 </head>
 <body>
 <header class="topbar">
@@ -24,6 +24,7 @@
 
   <nav class="tabs" id="tabs">
     <a href="#/search" data-view="search" class="active">检索</a>
+    <a href="#/graph" data-view="graph">图谱</a>
     <a href="#/compose" data-view="compose">组稿台</a>
     <a href="#/hooks" data-view="hooks">钩子库</a>
     <a href="#/stats" data-view="stats">数据</a>
@@ -67,12 +68,13 @@
       </div>
       <button class="ghost" id="reader-close">关闭</button>
     </div>
+    <div id="reader-notes" class="notes"></div>
     <div id="reader-body" class="reader-body"></div>
     <div id="reader-related" class="related"></div>
   </section>
 </main>
 
 <div id="toast" class="toast" hidden></div>
-<script src="/assets/app.js"></script>
+<script src="/assets/app.js?v=3"></script>
 </body>
 </html>

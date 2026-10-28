@@ -26,7 +26,7 @@ FILTER_COLUMNS = {
 MARK_OPEN, MARK_CLOSE = "«", "»"
 
 # 不同类型的文件对「写稿」的价值不一样：索引用不上，爆款和规则最有用
-TYPE_WEIGHT = {"index": 0.4, "daily": 0.7, "misc": 0.85, "ops": 0.85}
+TYPE_WEIGHT = {"index": 0.18, "daily": 0.7, "misc": 0.85, "ops": 0.85}
 GRADE_BONUS = {"S": 1.25, "A": 1.12}
 FIELD_LINE_RE = re.compile(
     r"^[\-\*>\s|]*\*{0,2}(标题|作者|发布时间|互动|地区|酒店|brand|品牌|采集日期|链接|编号|来源)\*{0,2}[：:]",

@@ -17,7 +17,7 @@ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
   | jiulv --config /绝对路径/config.yaml mcp
 ```
 
-能看到 `serverInfo` 和七个工具名，就说明 server 本身没问题。接不上时先跑这一句，把问题定位在 server 侧还是客户端侧。
+能看到 `serverInfo` 和九个工具名，就说明 server 本身没问题。接不上时先跑这一句，把问题定位在 server 侧还是客户端侧。
 
 ## WorkBuddy
 
@@ -90,7 +90,9 @@ jiulv tools --format openai > tools.json
 文件里是标准的 `{"type":"function","function":{...}}` 数组，塞进请求的 `tools` 字段即可。工具真正执行时打到本地 REST：
 
 - `kb_search` → `GET /api/v1/search?q=...&region=...&doc_type=...&limit=...`
-- `kb_get_doc` → `GET /api/v1/docs/{uid_or_title}`
+- `kb_get_doc` → `GET /api/v1/docs/{uid_or_title}`，返回里已经带 `annotations`、`concepts`、`backlinks`
+- `kb_annotations` → `GET /api/v1/concept/docs?ref=...` 拿到文档列表后逐个取 `annotations` 汇总去重
+- `kb_graph` → `GET /api/v1/graph?focus=...`
 - `kb_hooks` → `GET /api/v1/hooks?hook_type=...&audience=...&pain=...`
 - `kb_style_rules` → `GET /api/v1/rules`，需要主题时改用 `GET /api/v1/search?doc_type=rule&q=主题`
 - `kb_context_pack` → `POST /api/v1/compose`
@@ -98,6 +100,14 @@ jiulv tools --format openai > tools.json
 - `kb_feedback` → `POST /api/v1/feedback`
 
 `examples/http/client.py` 是完整的调用示例，二十来行，照着改就行。
+
+## 两个新工具的用法
+
+`kb_annotations` 是给「写之前先弄清这家酒店」用的。传 `hotel:三亚保利瑰丽`，它会把库里所有提过这家酒店的笔记的注解汇总去重，返回「必须写的保留意见」「可写的卖点」「预订启示」「采集点评」。等于把你几十篇笔记里散落的判断一次摊在桌上，不用逐篇翻。
+
+`kb_graph` 是给「还有哪些相关的」用的。不传 `focus` 看概念全景，传了取一跳邻居。它不做检索，别拿它当搜索用。
+
+`kb_get_doc` 现在返回的不只是原文，还带这篇的注解和所属概念。Agent 读到一篇就能知道「这篇为什么值得学」，不用额外调一次。
 
 ## 接上之后怎么用才对
 

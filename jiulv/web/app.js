@@ -32,6 +32,7 @@ const state = {
   hookType: "",
   readerUid: null,
   lastPack: null,
+  graphFocus: "",
 };
 
 /* ------------------------------------------------------------------ 基础 */
@@ -332,23 +333,129 @@ async function openDoc(uid) {
     $("#reader-meta").textContent = meta.join(" · ");
 
     $("#reader-body").innerHTML = renderMarkdown(doc.content || "");
-
-    const related = $("#reader-related");
-    related.innerHTML = "";
-    if ((doc.related || []).length) {
-      related.appendChild(el("h4", null, "同酒店 / 同地区"));
-      for (const item of doc.related) {
-        const link = el("a", null, item.title);
-        link.href = "#";
-        link.onclick = (event) => {
-          event.preventDefault();
-          openDoc(item.uid);
-        };
-        related.appendChild(link);
-      }
-    }
+    renderNotes($("#reader-notes"), doc.annotations || []);
+    renderReaderSide($("#reader-related"), doc);
   } catch (error) {
     $("#reader-body").innerHTML = `<div class="empty"><strong>打不开</strong>${escapeHtml(error.message)}</div>`;
+  }
+}
+
+/* ------------------------------------------------------------------ 注解 */
+
+const NOTE_TONE = {
+  takeaway: "key",
+  review: "key",
+  con: "warn",
+  booking: "info",
+  pro: "info",
+  voice: "mute",
+  structure: "mute",
+  core: "mute",
+  visual: "mute",
+  note: "mute",
+  signal: "derived",
+  title: "derived",
+};
+
+const NOTE_OPEN = 3;
+
+function noteCard(note) {
+  const tone = NOTE_TONE[note.kind] || "mute";
+  const card = el("div", "note-card tone-" + tone);
+  const top = el("div", "note-top");
+  top.appendChild(el("span", "note-kind", note.kind_label || note.label || "注解"));
+  // 推算出来的要跟原文摘录分开，不然读者分不清哪句是资料里写的
+  top.appendChild(
+    el("span", "note-origin", note.origin === "derived" ? "规则推算" : "原文摘录")
+  );
+  card.appendChild(top);
+  card.appendChild(el("p", "note-text", note.text));
+
+  // 引文跟正文是同一句时就别重复占一行了
+  const quote = (note.evidence || "").replace(/^原文引用：/, "").trim();
+  if (quote && !note.text.includes(quote.slice(0, 12))) {
+    card.appendChild(el("p", "note-evidence", "原文：" + quote));
+  }
+  return card;
+}
+
+function renderNotes(box, notes) {
+  box.innerHTML = "";
+  if (!notes.length) return;
+
+  const head = el("div", "notes-head");
+  head.appendChild(el("h4", null, "为什么这么写"));
+  head.appendChild(el("span", "hint", `${notes.length} 条注解`));
+  box.appendChild(head);
+
+  const list = el("div", "notes-list");
+  const shown = notes.slice(0, NOTE_OPEN);
+  shown.forEach((note) => list.appendChild(noteCard(note)));
+  box.appendChild(list);
+
+  if (notes.length > NOTE_OPEN) {
+    const rest = el("div", "notes-list");
+    rest.hidden = true;
+    notes.slice(NOTE_OPEN).forEach((note) => rest.appendChild(noteCard(note)));
+    box.appendChild(rest);
+
+    const more = el("button", "ghost notes-more", `展开其余 ${notes.length - NOTE_OPEN} 条`);
+    more.onclick = () => {
+      const open = rest.hidden;
+      rest.hidden = !open;
+      more.textContent = open ? "收起" : `展开其余 ${notes.length - NOTE_OPEN} 条`;
+    };
+    box.appendChild(more);
+  }
+}
+
+function renderReaderSide(box, doc) {
+  box.innerHTML = "";
+
+  const concepts = doc.concepts || [];
+  if (concepts.length) {
+    box.appendChild(el("h4", null, "这篇连到"));
+    const chips = el("div", "concept-chips");
+    for (const concept of concepts) {
+      const chip = el("button", "concept-chip kind-" + concept.kind);
+      chip.appendChild(el("span", "chip-kind", concept.kind_label));
+      chip.appendChild(el("span", "chip-label", concept.label));
+      chip.onclick = () => goGraph(concept.ref || concept.kind + ":" + concept.key);
+      chips.appendChild(chip);
+    }
+    box.appendChild(chips);
+  }
+
+  const backlinks = doc.backlinks || [];
+  if (backlinks.length) {
+    box.appendChild(el("h4", null, "反向链接 · 谁还讲过同一个东西"));
+    for (const item of backlinks) {
+      const row = el("a", "backlink");
+      row.href = "#";
+      const name = el("span", "backlink-title", item.title || "（无标题）");
+      row.appendChild(name);
+      row.appendChild(
+        el("span", "backlink-via", `共 ${item.shared} 个概念 · ${(item.via || []).join("、")}`)
+      );
+      row.onclick = (event) => {
+        event.preventDefault();
+        openDoc(item.uid);
+      };
+      box.appendChild(row);
+    }
+  }
+
+  if ((doc.related || []).length) {
+    box.appendChild(el("h4", null, "同酒店 / 同地区"));
+    for (const item of doc.related) {
+      const link = el("a", null, item.title);
+      link.href = "#";
+      link.onclick = (event) => {
+        event.preventDefault();
+        openDoc(item.uid);
+      };
+      box.appendChild(link);
+    }
   }
 }
 
@@ -688,6 +795,415 @@ async function renderStats() {
   }
 }
 
+/* ------------------------------------------------------------------ 图谱 */
+
+// 概念类型 → 颜色。用的是纸感的低饱和色，跟正文不打架。
+const GRAPH_KINDS = {
+  region: { color: "#2f5d50", label: "地区" },
+  hotel: { color: "#9a5232", label: "酒店" },
+  pain: { color: "#8a7420", label: "痛点" },
+  audience: { color: "#3f6a8a", label: "人群" },
+  technique: { color: "#6a5a8f", label: "手法" },
+  series: { color: "#2f7a6a", label: "系列" },
+  author: { color: "#6f6a5e", label: "作者" },
+  hook: { color: "#9a5252", label: "钩子" },
+  doc: { color: "#9c958a", label: "笔记" },
+};
+
+const G = {
+  nodes: [],
+  edges: [],
+  focus: null,
+  view: { scale: 1, x: 0, y: 0 },
+  canvas: null,
+  ctx: null,
+  drag: null,
+  hover: null,
+  moved: false,
+};
+
+function goGraph(ref) {
+  state.graphFocus = ref || "";
+  if (state.view === "graph") renderGraph();
+  else location.hash = "#/graph";
+}
+
+function nodeRadius(node) {
+  if (node.kind === "doc") return 5.5;
+  return 4.5 + Math.min(8.5, Math.log2(1 + (node.size || 1)) * 1.35);
+}
+
+function layoutGraph(nodes, edges, width, height) {
+  const index = new Map(nodes.map((n, i) => [n.id, i]));
+  const links = [];
+  for (const edge of edges) {
+    const a = index.get(edge.source);
+    const b = index.get(edge.target);
+    if (a != null && b != null && a !== b) links.push([a, b, Math.max(0.2, Math.min(1, (edge.weight || 1) / 6))]);
+  }
+
+  nodes.forEach((node, i) => {
+    const angle = (i / Math.max(1, nodes.length)) * Math.PI * 2;
+    const radius = Math.min(width, height) * 0.34 * (0.55 + ((i * 37) % 100) / 180);
+    node.x = width / 2 + Math.cos(angle) * radius;
+    node.y = height / 2 + Math.sin(angle) * radius;
+    node.vx = 0;
+    node.vy = 0;
+    node.r = nodeRadius(node);
+  });
+
+  // 节点少的时候（聚焦视图）力要收着点，否则十来个点会被推得铺满整屏、拉出长线
+  const compact = nodes.length <= 24;
+  const repel = compact ? 1500 : 3400;
+  const steps = nodes.length > 45 ? 320 : 420;
+  for (let step = 0; step < steps; step += 1) {
+    const alpha = 1 - step / steps;
+
+    // 斥力：节点互相推开，避免标签压在一起
+    for (let i = 0; i < nodes.length; i += 1) {
+      for (let j = i + 1; j < nodes.length; j += 1) {
+        const a = nodes[i];
+        const b = nodes[j];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        // 距离下限卡在两者半径之和：不卡的话两个点贴近时斥力炸到无穷，
+        // 整张图会被甩成一圈孤点
+        const d = Math.max(Math.hypot(dx, dy), a.r + b.r + 6);
+        const force = (repel * alpha) / (d * d);
+        const fx = (dx / d) * force;
+        const fy = (dy / d) * force;
+        a.vx -= fx;
+        a.vy -= fy;
+        b.vx += fx;
+        b.vy += fy;
+      }
+    }
+
+    // 弹簧：有边的往标准距离上拉
+    for (const [a, b, strength] of links) {
+      const na = nodes[a];
+      const nb = nodes[b];
+      const dx = nb.x - na.x;
+      const dy = nb.y - na.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const target = (compact ? 78 : 108) - 22 * strength;
+      const force = (d - target) * (compact ? 0.02 : 0.012) * alpha * (0.5 + strength);
+      const fx = (dx / d) * force;
+      const fy = (dy / d) * force;
+      na.vx += fx;
+      na.vy += fy;
+      nb.vx -= fx;
+      nb.vy -= fy;
+    }
+
+    for (const node of nodes) {
+      node.vx += (width / 2 - node.x) * 0.0026 * alpha;
+      node.vy += (height / 2 - node.y) * 0.0026 * alpha;
+      node.vx *= 0.84;
+      node.vy *= 0.84;
+      node.x += node.vx;
+      node.y += node.vy;
+      node.x = Math.max(node.r + 8, Math.min(width - node.r - 8, node.x));
+      node.y = Math.max(node.r + 8, Math.min(height - node.r - 8, node.y));
+    }
+  }
+
+  // 收尾：把整张图等比缩放进画布，别缩在中间一小块
+  const xs = nodes.map((n) => n.x);
+  const ys = nodes.map((n) => n.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const pad = 56;
+  const spanX = Math.max(1, maxX - minX);
+  const spanY = Math.max(1, maxY - minY);
+  const k = Math.min((width - pad * 2) / spanX, (height - pad * 2) / spanY, 1.6);
+  const offsetX = (width - spanX * k) / 2;
+  const offsetY = (height - spanY * k) / 2;
+  for (const node of nodes) {
+    node.x = (node.x - minX) * k + offsetX;
+    node.y = (node.y - minY) * k + offsetY;
+  }
+
+  // 标签只给度数高的常显，其余悬停才出，否则一片糊
+  const ranked = [...nodes].sort((a, b) => (b.size || 0) - (a.size || 0));
+  const show = new Set(ranked.slice(0, 30).map((n) => n.id));
+  for (const node of nodes) node.showLabel = node.kind !== "doc" && show.has(node.id);
+}
+
+function drawGraph() {
+  const { ctx, canvas, nodes, edges, view, hover } = G;
+  if (!ctx || !canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const width = canvas.width / dpr;
+  const height = canvas.height / dpr;
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  const pos = (node) => ({ x: node.x * view.scale + view.x, y: node.y * view.scale + view.y });
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+
+  // 边
+  for (const edge of edges) {
+    const a = byId.get(edge.source);
+    const b = byId.get(edge.target);
+    if (!a || !b) continue;
+    const pa = pos(a);
+    const pb = pos(b);
+    const strong = (edge.weight || 1) >= 3;
+    const lit = hover && (hover.id === a.id || hover.id === b.id);
+    ctx.strokeStyle = lit
+      ? "rgba(47,93,80,.6)"
+      : strong
+      ? "rgba(126,119,106,.34)"
+      : "rgba(126,119,106,.17)";
+    ctx.lineWidth = lit ? 1.7 : strong ? 1.05 : 0.75;
+    ctx.beginPath();
+    ctx.moveTo(pa.x, pa.y);
+    ctx.lineTo(pb.x, pb.y);
+    ctx.stroke();
+  }
+
+  // 节点
+  for (const node of nodes) {
+    const p = pos(node);
+    const color = (GRAPH_KINDS[node.kind] || GRAPH_KINDS.doc).color;
+    const r = node.r * view.scale;
+    const active = hover && hover.id === node.id;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, Math.max(2.5, r), 0, Math.PI * 2);
+    ctx.fillStyle = node.kind === "doc" ? "rgba(156,149,138,.55)" : color;
+    ctx.globalAlpha = active ? 1 : node.kind === "doc" ? 0.75 : 0.92;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    if (node.kind !== "doc") {
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = "rgba(255,253,249,.85)";
+      ctx.stroke();
+    }
+    // 焦点节点加一圈，一眼知道现在站在哪儿
+    if (G.focus && node.id === G.focus.id) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, Math.max(2.5, r) + 4.5, 0, Math.PI * 2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.6;
+      ctx.globalAlpha = 0.7;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // 标签：概念常显，笔记只在不拥挤时显示。标签之间做避让，
+  // 宁可少显示几个，也不要叠成一坨看不清
+  const dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const labelBg = dark ? "rgba(22,22,17,.86)" : "rgba(255,253,249,.86)";
+  const placed = [];
+  ctx.textBaseline = "middle";
+  // 节点少的（聚焦视图）全都给标签 —— 点进一家酒店就是想看有哪几篇
+  const roomy = nodes.length <= 24;
+  const ordered = [...nodes].sort((a, b) => (b.size || 0) - (a.size || 0));
+  for (const node of ordered) {
+    const p = pos(node);
+    const r = Math.max(2.5, node.r * view.scale);
+    const active = hover && hover.id === node.id;
+    if (node.kind === "doc" && !active && !roomy && view.scale < 1.5) continue;
+    if (!active && !node.showLabel && !roomy && view.scale < 1.5) continue;
+    const limit = node.kind === "doc" ? 15 : 14;
+    const text = node.label.length > limit ? node.label.slice(0, limit) + "…" : node.label;
+    ctx.font = active
+      ? "600 12.5px -apple-system, 'PingFang SC', sans-serif"
+      : "11.5px -apple-system, 'PingFang SC', sans-serif";
+    const w = ctx.measureText(text).width;
+    const box = { x: p.x + r + 3, y: p.y - 8, w: w + 4, h: 16 };
+    if (!active) {
+      const clash = placed.some(
+        (o) => box.x < o.x + o.w && box.x + box.w > o.x && box.y < o.y + o.h && box.y + box.h > o.y
+      );
+      if (clash) continue;
+    }
+    placed.push(box);
+    ctx.fillStyle = labelBg;
+    ctx.fillRect(box.x, box.y, box.w, box.h);
+    ctx.fillStyle = node.kind === "doc" ? (dark ? "#b8b2a5" : "#6d675c") : GRAPH_KINDS[node.kind].color;
+    ctx.fillText(text, box.x + 2, p.y);
+  }
+}
+
+function graphHitTest(clientX, clientY) {
+  const rect = G.canvas.getBoundingClientRect();
+  const x = (clientX - rect.left - G.view.x) / G.view.scale;
+  const y = (clientY - rect.top - G.view.y) / G.view.scale;
+  let best = null;
+  let bestDist = Infinity;
+  for (const node of G.nodes) {
+    const d = Math.hypot(node.x - x, node.y - y);
+    if (d <= node.r + 6 && d < bestDist) {
+      best = node;
+      bestDist = d;
+    }
+  }
+  return best;
+}
+
+function bindGraphEvents(canvas) {
+  let panning = false;
+  let last = null;
+
+  canvas.addEventListener("mousedown", (event) => {
+    const node = graphHitTest(event.clientX, event.clientY);
+    G.moved = false;
+    if (node) {
+      G.drag = node;
+    } else {
+      panning = true;
+      last = { x: event.clientX, y: event.clientY };
+      canvas.style.cursor = "grabbing";
+    }
+  });
+
+  window.addEventListener("mousemove", (event) => {
+    if (G.drag) {
+      const rect = canvas.getBoundingClientRect();
+      G.drag.x = (event.clientX - rect.left - G.view.x) / G.view.scale;
+      G.drag.y = (event.clientY - rect.top - G.view.y) / G.view.scale;
+      G.moved = true;
+      drawGraph();
+      return;
+    }
+    if (panning && last) {
+      G.view.x += event.clientX - last.x;
+      G.view.y += event.clientY - last.y;
+      last = { x: event.clientX, y: event.clientY };
+      G.moved = true;
+      drawGraph();
+      return;
+    }
+    if (canvas.contains(event.target) || event.target === canvas) {
+      const node = graphHitTest(event.clientX, event.clientY);
+      const next = node ? node.id : null;
+      if (next !== (G.hover && G.hover.id)) {
+        G.hover = node;
+        canvas.style.cursor = node ? "pointer" : "grab";
+        drawGraph();
+      }
+    }
+  });
+
+  window.addEventListener("mouseup", (event) => {
+    if (G.drag && !G.moved) {
+      const node = G.drag;
+      if (node.kind === "doc" && node.uid) openDoc(node.uid);
+      else if (node.kind !== "doc") goGraph(node.id);
+    }
+    G.drag = null;
+    panning = false;
+    last = null;
+    canvas.style.cursor = "grab";
+  });
+
+  canvas.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const mx = event.clientX - rect.left;
+    const my = event.clientY - rect.top;
+    const factor = event.deltaY < 0 ? 1.12 : 0.89;
+    const next = Math.max(0.45, Math.min(2.6, G.view.scale * factor));
+    G.view.x = mx - (mx - G.view.x) * (next / G.view.scale);
+    G.view.y = my - (my - G.view.y) * (next / G.view.scale);
+    G.view.scale = next;
+    drawGraph();
+  }, { passive: false });
+
+  canvas.addEventListener("mouseleave", () => {
+    G.hover = null;
+    drawGraph();
+  });
+}
+
+async function renderGraph() {
+  setView("graph");
+  const view = $("#view");
+  const focus = state.graphFocus || "";
+  view.innerHTML = "";
+
+  const head = el("div", "view-head");
+  head.appendChild(el("h2", null, "知识图谱"));
+  head.appendChild(el("span", "hint", "概念和笔记是同一种节点，点一下顺着走"));
+  view.appendChild(head);
+
+  const bar = el("div", "graph-bar");
+  const legend = el("div", "graph-legend");
+  for (const [kind, meta] of Object.entries(GRAPH_KINDS)) {
+    const item = el("span", "legend-item");
+    const dot = el("i");
+    dot.style.background = meta.color;
+    item.appendChild(dot);
+    item.appendChild(document.createTextNode(meta.label));
+    legend.appendChild(item);
+  }
+  bar.appendChild(legend);
+  const actions = el("div", "graph-actions");
+  if (focus) {
+    const back = el("button", "ghost", "返回全景");
+    back.onclick = () => goGraph("");
+    actions.appendChild(back);
+  }
+  bar.appendChild(actions);
+  view.appendChild(bar);
+
+  const stage = el("div", "graph-stage");
+  const canvas = document.createElement("canvas");
+  canvas.className = "graph-canvas";
+  stage.appendChild(canvas);
+  const tip = el("div", "graph-tip");
+  tip.hidden = true;
+  stage.appendChild(tip);
+  view.appendChild(stage);
+
+  const dpr = window.devicePixelRatio || 1;
+  const width = stage.clientWidth || 860;
+  const height = Math.max(420, Math.min(660, window.innerHeight - 260));
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  canvas.style.width = width + "px";
+  canvas.style.height = height + "px";
+
+  G.canvas = canvas;
+  G.ctx = canvas.getContext("2d");
+  G.view = { scale: 1, x: 0, y: 0 };
+  G.hover = null;
+
+  try {
+    const url = "/api/v1/graph?limit=" + (focus ? 30 : 26) + (focus ? "&focus=" + encodeURIComponent(focus) : "");
+    const data = await api(url);
+    G.nodes = data.nodes || [];
+    G.edges = data.edges || [];
+    G.focus = data.focus;
+
+    if (data.focus) {
+      const crumb = el("div", "graph-focus");
+      crumb.appendChild(el("span", "crumb-kind", data.focus.kind_label));
+      crumb.appendChild(el("strong", null, data.focus.label));
+      if (data.focus.note) crumb.appendChild(el("span", "crumb-note", data.focus.note));
+      crumb.appendChild(el("span", "crumb-count", `${data.node_count} 个节点 · ${data.edge_count} 条连接`));
+      bar.insertBefore(crumb, legend);
+    } else if (!G.nodes.length) {
+      const empty = el("div", "empty");
+      empty.innerHTML = "<strong>还没有图谱</strong>先运行 <code>jiulv ingest</code> 收录资料。";
+      view.appendChild(empty);
+      return;
+    }
+
+    layoutGraph(G.nodes, G.edges, width, height);
+    drawGraph();
+    bindGraphEvents(canvas);
+  } catch (error) {
+    view.appendChild(el("div", "empty", "图谱加载失败：" + error.message));
+  }
+}
+
 /* ------------------------------------------------------------------ 路由 */
 
 function setView(view) {
@@ -707,6 +1223,7 @@ function route() {
   if (hash.startsWith("compose")) renderCompose();
   else if (hash.startsWith("hooks")) renderHooks();
   else if (hash.startsWith("stats")) renderStats();
+  else if (hash.startsWith("graph")) renderGraph();
   else runSearch();
 }
 

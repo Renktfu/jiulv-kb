@@ -29,9 +29,30 @@
 
 ## GET /api/v1/docs/{uid}
 
-取一篇全文，含 `content` 与 `related`（同酒店优先，其次同地区同类型）。
+取一篇全文，含 `content`，以及四组关联数据：
+
+- `annotations` 注解，按权重降序。每条带 `kind`（takeaway／con／booking／pro／voice／review／signal／title 等）、`text`、`evidence`（原文引用）、`origin`（`source` 原文摘录 / `derived` 规则推算）。
+- `concepts` 所属概念，八类：region／hotel／author／series／audience／pain／hook／technique。
+- `backlinks` 反向链接：通过共享概念找上来的其他笔记，带 `shared`（共享概念数）和 `via`（经由哪些概念）。
+- `related` 同酒店优先，其次同地区同类型。
 
 `uid` 也接受标题片段：传不进 uid 时会退回 `title LIKE` 匹配。
+
+## GET /api/v1/graph
+
+图谱。不传 `focus` 返回概念全景图（节点是概念，边是两个概念共同出现过的笔记数）；传了返回该节点的一跳子图。
+
+`focus` 支持三种写法：`hotel:三亚保利瑰丽`（类型:键）、`c:12`（概念 id）、`d:88`（文档 id）。
+
+返回 `{focus, nodes, edges}`。节点带 `kind`、`label`、`size`（度数）；文档节点额外带 `uid`，点击可直接打开原文。
+
+## GET /api/v1/concepts
+
+概念列表。不带 `kind` 返回各类型的数量；带 `kind` 返回该类型下按文档数排序的概念。`kind` 取 region／hotel／author／series／audience／pain／hook／technique。
+
+## GET /api/v1/concept/docs
+
+某个概念下的全部笔记，参数 `ref`（如 `pain:P2`、`hotel:三亚保利瑰丽`）、`limit`、`offset`。
 
 ## GET /api/v1/docs/{uid}/raw
 

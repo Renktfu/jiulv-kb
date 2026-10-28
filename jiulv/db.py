@@ -10,7 +10,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_SQL = """
 PRAGMA journal_mode=WAL;
@@ -146,6 +146,49 @@ CREATE TABLE IF NOT EXISTS compose_log (
     brief_json TEXT,
     created_at TEXT
 );
+
+-- ---------------------------------------------------------------- 注解
+--
+-- 一条注解 = 关于「这篇为什么这么写」的一个判断。三种来源分工明确：
+--   origin='source'  语料原文里本来就有的（预订启示、提取要点、采集点评）
+--   origin='derived' 由指标或标题按规则推出来的（藏赞比、标题手法）
+-- 原文类必须带 evidence 引用，衍生类在文案里自己说明是推算，不混淆。
+
+CREATE TABLE IF NOT EXISTS annotations (
+    id       INTEGER PRIMARY KEY,
+    doc_id   INTEGER NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
+    kind     TEXT NOT NULL,   -- takeaway/booking/pro/con/voice/structure/core/visual/note/review/signal/title
+    label    TEXT,            -- 卡片标题
+    text     TEXT NOT NULL,   -- 注解正文
+    evidence TEXT,            -- 原文引用，可空
+    origin   TEXT,            -- source / derived
+    weight   REAL DEFAULT 0.5,
+    seq      INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_ann_doc  ON annotations(doc_id);
+CREATE INDEX IF NOT EXISTS idx_ann_kind ON annotations(kind);
+
+-- 概念节点：Obsidian 里除了笔记还有概念，这里同样一等公民对待
+CREATE TABLE IF NOT EXISTS concepts (
+    id        INTEGER PRIMARY KEY,
+    kind      TEXT NOT NULL,   -- region/hotel/author/series/audience/pain/hook/technique
+    key       TEXT NOT NULL,
+    label     TEXT NOT NULL,
+    note      TEXT,            -- 概念说明
+    doc_count INTEGER DEFAULT 0,
+    UNIQUE(kind, key)
+);
+CREATE INDEX IF NOT EXISTS idx_concepts_kind ON concepts(kind);
+
+-- 笔记 ↔ 概念：双向链接就靠这张表，正查反查都走它
+CREATE TABLE IF NOT EXISTS doc_concepts (
+    doc_id     INTEGER NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
+    concept_id INTEGER NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+    weight     REAL DEFAULT 1.0,
+    evidence   TEXT,
+    PRIMARY KEY(doc_id, concept_id)
+);
+CREATE INDEX IF NOT EXISTS idx_dc_concept ON doc_concepts(concept_id);
 """
 
 
@@ -202,6 +245,10 @@ def stats(conn: sqlite3.Connection) -> Dict[str, Any]:
         "docs": scalar("SELECT COUNT(*) FROM docs"),
         "chunks": scalar("SELECT COUNT(*) FROM chunks"),
         "hooks": scalar("SELECT COUNT(*) FROM hooks"),
+        "annotations": scalar("SELECT COUNT(*) FROM annotations"),
+        "annotated_docs": scalar("SELECT COUNT(DISTINCT doc_id) FROM annotations"),
+        "concepts": scalar("SELECT COUNT(*) FROM concepts"),
+        "links": scalar("SELECT COUNT(*) FROM doc_concepts"),
         "embedded_chunks": scalar("SELECT COUNT(*) FROM embeddings"),
         "composes": scalar("SELECT COUNT(*) FROM compose_log"),
         "outcomes": scalar("SELECT COUNT(*) FROM outcomes"),

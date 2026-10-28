@@ -13,7 +13,14 @@ import json
 import sys
 from typing import Any, Callable, Dict, List, Optional
 
-from . import __version__, compose as compose_mod, db, search as search_mod
+from . import (
+    __version__,
+    annotate as annotate_mod,
+    compose as compose_mod,
+    db,
+    graph as graph_mod,
+    search as search_mod,
+)
 from .config import Config, load_config
 from .taxonomy import load_taxonomy
 
@@ -48,6 +55,36 @@ TOOLS: List[Dict[str, Any]] = [
             "type": "object",
             "properties": {"uid_or_title": {"type": "string"}},
             "required": ["uid_or_title"],
+        },
+    },
+    {
+        "name": "kb_annotations",
+        "description": "把一个概念（酒店/地区/人群/痛点/手法）下所有笔记的注解汇总去重。"
+        "返回「必须写的保留意见」「可写的卖点」「预订启示」「采集点评」。"
+        "写某家酒店前先调一次，等于把库里关于它的判断全摊在桌上。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "focus": {
+                    "type": "string",
+                    "description": "概念引用，例如 hotel:三亚保利瑰丽、region:海南、pain:P2",
+                },
+                "kinds": {"type": "array", "items": {"type": "string"}},
+                "limit": {"type": "integer", "default": 24},
+            },
+            "required": ["focus"],
+        },
+    },
+    {
+        "name": "kb_graph",
+        "description": "知识图谱：不传 focus 返回概念全景（哪些地区/酒店/痛点互相连着），"
+        "传 focus 返回该节点的一跳邻居。用来找「还有哪些相关的东西」，不是用来检索正文。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "focus": {"type": "string", "description": "hotel:xxx / region:xxx / pain:P2 / d:<uid>"},
+                "limit": {"type": "integer", "default": 20},
+            },
         },
     },
     {
@@ -174,7 +211,78 @@ class Server:
             doc = search_mod.get_doc(conn, args.get("uid_or_title", ""))
             if not doc:
                 return {"found": False, "message": "库里没有这篇，先补采集，不要凭空写"}
+            row = conn.execute("SELECT id FROM docs WHERE uid=?", (doc["uid"],)).fetchone()
+            if row:
+                # 注解一起带上：Agent 拿到的不只是原文，还有「这篇为什么值得学」
+                doc["annotations"] = [
+                    {"kind": a["kind"], "label": a["label"], "text": a["text"],
+                     "evidence": a["evidence"], "origin": a["origin"]}
+                    for a in annotate_mod.for_doc(conn, row["id"], limit=12)
+                ]
+                doc["concepts"] = [
+                    {"kind": c["kind"], "label": c["label"]} for c in graph_mod.doc_concepts(conn, row["id"])[:8]
+                ]
             return {"found": True, "doc": doc}
+        finally:
+            conn.close()
+
+    def tool_annotations(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """把一个概念下所有笔记的注解汇总去重。
+
+        写某家酒店之前调一次，等于把库里关于它的「必须写的保留意见」「可写的卖点」
+        「预订启示」全摊在桌上，不用逐篇翻。
+        """
+        conn = self._conn()
+        try:
+            ref = args.get("focus") or ""
+            kinds = args.get("kinds") or ["takeaway", "con", "booking", "pro", "review"]
+            limit = int(args.get("limit") or 24)
+            data = graph_mod.concept_docs(conn, ref, limit=80)
+            if not data["concept"]:
+                return {
+                    "found": False,
+                    "message": f"图谱里没有这个节点：{ref}。先用 kb_graph 不传参数看有哪些概念。",
+                }
+            items: List[Dict[str, Any]] = []
+            seen = set()
+            for doc in data["items"]:
+                row = conn.execute("SELECT id FROM docs WHERE uid=?", (doc["uid"],)).fetchone()
+                if not row:
+                    continue
+                for ann in annotate_mod.for_doc(conn, row["id"]):
+                    if ann["kind"] not in kinds:
+                        continue
+                    key = ann["text"][:36]
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    items.append({**ann, "from": doc["title"], "uid": doc["uid"]})
+            items.sort(key=lambda item: -item["weight"])
+            return {
+                "found": True,
+                "focus": data["concept"]["label"],
+                "docs": data["total"],
+                "total": len(items),
+                "items": items[:limit],
+            }
+        finally:
+            conn.close()
+
+    def tool_graph(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """图谱导航：不传 focus 看全景，传了就取这个节点的一跳邻居。"""
+        conn = self._conn()
+        try:
+            focus = args.get("focus") or ""
+            limit = int(args.get("limit") or 20)
+            data = (
+                graph_mod.subgraph(conn, focus, limit=max(4, min(limit, 30)))
+                if focus
+                else graph_mod.overview(conn, limit=max(10, min(limit, 40)))
+            )
+            # Agent 的上下文比屏幕贵，把 note 这类长字段去掉
+            for node in data["nodes"]:
+                node.pop("note", None)
+            return data
         finally:
             conn.close()
 
@@ -276,6 +384,8 @@ class Server:
         table: Dict[str, Callable[[Dict[str, Any]], Dict[str, Any]]] = {
             "kb_search": self.tool_search,
             "kb_get_doc": self.tool_get_doc,
+            "kb_annotations": self.tool_annotations,
+            "kb_graph": self.tool_graph,
             "kb_hooks": self.tool_hooks,
             "kb_style_rules": self.tool_rules,
             "kb_context_pack": self.tool_context_pack,
