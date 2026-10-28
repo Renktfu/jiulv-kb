@@ -277,6 +277,26 @@ html, body {
 .reader-body code { font-family: var(--mono); font-size: 12.5px; background: var(--paper); padding: 1px 5px; border-radius: 4px; }
 .reader-body strong { color: var(--ink); }
 .reader-body a { color: var(--accent); }
+.table-wrap { margin: 12px 0 16px; overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--paper-2); }
+.reader-body table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.reader-body th, .reader-body td {
+  text-align: left;
+  vertical-align: top;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  line-height: 1.55;
+}
+.reader-body th {
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--paper);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+}
+.reader-body tbody tr:last-child td { border-bottom: 0; }
+.reader-body tbody tr:hover td { background: var(--accent-soft); }
+.reader-body td:first-child { color: var(--ink); white-space: nowrap; }
 .related { margin-top: 26px; border-top: 1px solid var(--line); padding-top: 14px; }
 .related h4 { font-size: 11px; letter-spacing: .14em; color: var(--ink-3); margin: 0 0 8px; font-weight: 500; }
 .related a { display: block; font-size: 13px; color: var(--ink-2); text-decoration: none; padding: 3px 0; }

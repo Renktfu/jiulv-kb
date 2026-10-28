@@ -108,15 +108,59 @@ function renderMarkdown(md) {
   const out = [];
   let list = null;
   let quote = null;
+  let table = null;
+
+  // 表格整块收完再吐，选岛那些篇一行六列，拆成「·」连排根本读不出来。
+  const flushTable = () => {
+    if (!table) return;
+    const rows = table;
+    table = null;
+    const isSep = (r) => r.length && r.every((c) => !c || /^:?-{2,}:?$/.test(c));
+    let head = null;
+    let body = rows;
+    if (rows.length > 1 && isSep(rows[1])) {
+      head = rows[0];
+      body = rows.slice(2);
+    } else if (isSep(rows[0])) {
+      body = rows.slice(1);
+    }
+    const cols = Math.max(...rows.map((r) => r.length));
+    const cells = (row, tag) => {
+      const padded = row.slice(0, cols);
+      while (padded.length < cols) padded.push("");
+      return padded.map((c) => `<${tag}>${inline(c)}</${tag}>`).join("");
+    };
+    out.push('<div class="table-wrap"><table>');
+    if (head) out.push(`<thead><tr>${cells(head, "th")}</tr></thead>`);
+    if (body.length) {
+      out.push("<tbody>");
+      for (const row of body) out.push(`<tr>${cells(row, "td")}</tr>`);
+      out.push("</tbody>");
+    }
+    out.push("</table></div>");
+  };
 
   const closeAll = () => {
     if (list) { out.push(`</${list}>`); list = null; }
     if (quote) { out.push("</blockquote>"); quote = null; }
+    flushTable();
   };
 
   for (const raw of lines) {
     const line = raw.replace(/\s+$/, "");
     if (!line.trim()) { closeAll(); continue; }
+
+    if (/^\|/.test(line)) {
+      if (!table) {
+        if (list) { out.push(`</${list}>`); list = null; }
+        if (quote) { out.push("</blockquote>"); quote = null; }
+        table = [];
+      }
+      const cells = line.replace(/^\|/, "").replace(/\|$/, "").split("|");
+      table.push(cells.map((c) => c.trim()));
+      continue;
+    }
+    if (table) flushTable();
 
     const heading = line.match(/^(#{1,6})\s+(.*)$/);
     if (heading) {
@@ -135,14 +179,6 @@ function renderMarkdown(md) {
       continue;
     }
     if (quote) { out.push("</blockquote>"); quote = null; }
-
-    if (/^\|/.test(line)) {
-      const cells = line.split("|").slice(1, -1);
-      if (cells.every((c) => /^[\s:-]+$/.test(c))) continue;
-      closeAll();
-      out.push(`<p class="table-row">${cells.map((c) => inline(c.trim())).join(" · ")}</p>`);
-      continue;
-    }
 
     const ul = line.match(/^\s*[-*+]\s+(.*)$/);
     if (ul) {
