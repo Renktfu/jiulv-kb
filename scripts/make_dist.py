@@ -9,13 +9,15 @@
     │   ├── 双击启动.command
     │   ├── jiulv/  tests/  docs/  scripts/  examples/
     │   ├── pyproject.toml  README.md  LICENSE  ...
-    │   └── data/       里面是空的，第一次启动会把索引建在这
+    │   └── data/       空壳，第一次启动会把索引建在这；library/ 里带拆好的自有资料
     └── windows/        Windows 用这份，双击「双击启动.bat」
         └── （同上，启动器换成 .bat，另附 Windows 安装说明）
 
 刻意不带的东西，以及为什么：
 
 - `.venv/`：虚拟环境里全是绝对路径，换目录就废。启动器第一次运行会自己建。
+- `data/` 整个不进包，只留空壳和一个例外：`data/library/` 是拆好篇的自有资料
+  （马尔代夫 22 篇），不带索引、不带客户信息，带上让新包开箱就有东西可搜。
 - `data/kb.sqlite3`：160MB 真实索引，含客户酒店名，且和你本机路径绑死。
   新环境第一次启动会自动建库（1500 篇约半分钟）。
 - `config.yaml` / `sources.yaml`：里面是本机绝对路径。没有它们反而更好——
@@ -130,9 +132,15 @@ def copy_payload(dest: Path) -> int:
 
     # data/ 只留一个空壳。没有它，第一次启动时 SQLite 会自己建目录，
     # 但如果用户把包放在只读位置，报错会出现在很深的地方，不好查。
+    #
+    # 例外是 data/library：那里面是拆好篇的自有资料（目前是马尔代夫 22 篇），
+    # 不是索引，也不含客户信息，带上能让新包开箱就有内容可搜。
     data_dir = dest / "data"
     data_dir.mkdir(exist_ok=True)
     (data_dir / ".gitkeep").write_text("", encoding="utf-8")
+    library_src = ROOT / "data" / "library"
+    if library_src.is_dir():
+        shutil.copytree(library_src, data_dir / "library", dirs_exist_ok=True, ignore=_ignore)
     return count
 
 

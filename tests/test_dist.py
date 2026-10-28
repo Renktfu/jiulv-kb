@@ -120,7 +120,12 @@ def test_readme_txt_is_bom_crlf(dist):
 
 
 def test_data_dir_is_empty_shell(dist):
-    """data/ 只留 .gitkeep。带着索引一起发会让新环境的库和真实路径错位。"""
+    """data/ 只留 .gitkeep 和 library/。
+
+    带着索引一起发会让新环境的库和真实路径错位，所以 kb.sqlite3 一律不带。
+    library/ 是例外：里面是拆好篇的自有资料，不是索引，带着新包开箱就有东西可搜。
+    """
     data = dist / "macos" / "data"
     assert data.is_dir()
-    assert [p.name for p in data.iterdir()] == [".gitkeep"]
+    assert sorted(p.name for p in data.iterdir()) == [".gitkeep", "library"]
+    assert not list(data.glob("*.sqlite3"))
