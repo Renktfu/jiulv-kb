@@ -11,8 +11,68 @@ from typing import Any, List, Optional
 
 from . import __version__, db
 from .config import load_config
+from .platform_compat import setup_console
 
 PKG_ROOT = Path(__file__).resolve().parent.parent
+
+# pip 装成 wheel 之后，仓库根目录的 config.example.yaml 不会跟着进包，
+# 这时候就地生成一份等价的最小配置：Windows 用户多半是 pip 装的，不能让他卡在这。
+CONFIG_TEMPLATE = """\
+# jiulv-kb 配置。所有路径支持 ~ 展开和 ${ENV_VAR} 变量。
+
+app:
+  name: 酒旅爆款知识库
+  database: data/kb.sqlite3
+  host: 127.0.0.1
+  port: 8787
+
+# jiulv connect 探测到的资料库会写进同目录的 sources.yaml，不覆盖这个文件。
+# 这里手写的 sources 永远优先；sources.yaml 里的条目加 enabled: false 可停用。
+connect:
+  watch_interval: 120
+
+# 收录来源。每个 source 是一个目录，递归扫描 include 里的格式。
+# 先跑 `jiulv connect` 自动探测，探测不到再在这里手写：
+# sources:
+#   - name: 我的文案
+#     group: mine
+#     path: D:/资料/我的文案
+#     include: ["**/*.md", "**/*.docx", "**/*.pdf"]
+#     exclude: ["**/~$*"]
+sources: []
+
+search:
+  max_limit: 50
+  fallback_to_or: true
+  title_weight: 6.0
+  snippet_chars: 220
+
+semantic:
+  enabled: false
+  base_url: https://api.deepseek.com/v1
+  api_key_env: JIULV_EMBED_API_KEY
+  model: text-embedding-3-small
+  batch_size: 32
+  weight: 0.45
+
+generation:
+  enabled: false
+  base_url: https://api.deepseek.com/v1
+  api_key_env: JIULV_LLM_API_KEY
+  model: deepseek-chat
+  temperature: 0.85
+  max_tokens: 1600
+
+security:
+  api_keys: []
+  allow_localhost_without_key: true
+  cors_origins: ["*"]
+
+compose:
+  max_references: 6
+  excerpt_chars: 600
+  default_style: 瑞克克
+"""
 
 
 def _print(obj: Any) -> None:
@@ -26,13 +86,13 @@ def cmd_init(args: argparse.Namespace) -> int:
     example = PKG_ROOT / "config.example.yaml"
     if cfg.exists() and not args.force:
         print(f"config.yaml 已存在：{cfg}（加 --force 覆盖）")
+    elif example.exists():
+        shutil.copyfile(example, cfg)
+        print(f"已生成配置：{cfg}")
     else:
-        if example.exists():
-            shutil.copyfile(example, cfg)
-            print(f"已生成配置：{cfg}")
-        else:
-            print("找不到 config.example.yaml，请从仓库根目录复制")
-            return 1
+        # pip 装成 wheel 时没有仓库根目录，用内置模板，别让人卡在第一步
+        cfg.write_text(CONFIG_TEMPLATE, encoding="utf-8", newline="\n")
+        print(f"已生成配置（内置模板）：{cfg}")
     (target / "data").mkdir(exist_ok=True)
     print("下一步：jiulv connect 探测本机资料库（或手改 config.yaml 里的 sources 路径），然后 jiulv sync")
     return 0
@@ -233,6 +293,23 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """环境自检。出问题时先跑这个，把输出整段贴出来就能定位。"""
+    from . import doctor
+
+    config = load_config(args.config)
+    data = doctor.collect(config)
+    if args.json:
+        _print(data)
+    else:
+        print(doctor.format_text(data))
+    # 有硬性问题（没来源、库读不了）时返回非 0，方便脚本判断
+    fatal = (not data["config"]["sources"]) or (
+        data["db"]["exists"] and not data["db"].get("readable", True)
+    )
+    return 1 if fatal else 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
@@ -371,6 +448,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_stats = sub.add_parser("stats", help="索引统计")
     p_stats.set_defaults(func=cmd_stats)
 
+    p_doctor = sub.add_parser("doctor", help="环境自检：编码、路径、依赖、库状态")
+    p_doctor.add_argument("--json", action="store_true")
+    p_doctor.set_defaults(func=cmd_doctor)
+
     p_serve = sub.add_parser("serve", help="启动网页与接口服务")
     p_serve.add_argument("--host")
     p_serve.add_argument("--port", type=int)
@@ -392,6 +473,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    # 必须在任何 print 之前：Windows 上输出被重定向时用的是系统代码页，
+    # 中文会直接把命令打崩。见 platform_compat.setup_console。
+    setup_console()
     parser = build_parser()
     args = parser.parse_args(argv)
     return int(args.func(args) or 0)

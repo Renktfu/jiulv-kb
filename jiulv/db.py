@@ -195,8 +195,13 @@ CREATE INDEX IF NOT EXISTS idx_dc_concept ON doc_concepts(concept_id);
 def connect(path: str | Path) -> sqlite3.Connection:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), check_same_thread=False)
+    # timeout 是「等锁」的时间。Windows 上杀毒软件会短暂独占刚写完的 .sqlite3-wal，
+    # 默认 5 秒不够，表现为 "database is locked"；30 秒足够让扫描走完。
+    # check_same_thread=False 是因为 uvicorn 每个请求可能在别的线程上，
+    # 我们自己保证不并发写同一个连接（每次请求新开、用完就关）。
+    conn = sqlite3.connect(str(path), timeout=30.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=30000")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
 

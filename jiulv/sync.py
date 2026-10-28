@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from . import db
 from .config import Config
+from .platform_compat import atomic_write_text
 
 
 def _now_iso() -> str:
@@ -38,9 +39,11 @@ def read_state(config: Config) -> Dict[str, Any]:
 
 
 def write_state(config: Config, state: Dict[str, Any]) -> None:
-    path = state_path(config)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    """原子写。同时跑着 serve 和 watch 时，两个进程都会写这个文件——
+    直接覆盖有机会读到半个 JSON，下一轮就当成「没同步过」，白扫一遍全库。"""
+    atomic_write_text(
+        state_path(config), json.dumps(state, ensure_ascii=False, indent=2)
+    )
 
 
 def fingerprint(config: Config, sources: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:

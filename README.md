@@ -36,6 +36,20 @@ jiulv serve                   # 打开 http://127.0.0.1:8787
 `JIULV_WB_ROOT` / `JIULV_OC_ROOT` 把根目录指过去；或者直接在 `config.yaml` 里手写
 `sources`，手写的永远优先。接法细节见 [`docs/CONNECT.md`](docs/CONNECT.md)。
 
+出问题先跑 `jiulv doctor`：版本、路径、依赖、编码、每个来源在不在、库能不能读，
+一条命令全打出来，比逐项猜快。
+
+### Windows
+
+同一套代码在 Windows 上也能跑，但有几个只在 Windows 上才发作的坑（控制台代码页、
+路径大小写、目录联结、文件名非法字符、长路径），都已经处理掉了。安装步骤和排查
+清单见 [`docs/WINDOWS.md`](docs/WINDOWS.md)，那份文档是写给「在 Windows 上接手
+这个仓库的人或 AI」看的，包含每个平台敏感点的文件位置和改坏后的症状。
+
+要点三条：用 `python -m jiulv.cli <子命令>` 而不是裸 `jiulv`，避免 PATH 问题；
+项目目录不要放在 OneDrive 同步盘里（SQLite 的 WAL 三个文件会错位）；
+路径很深时先开 `LongPathsEnabled`。
+
 ## 界面上有什么
 
 六个页签，都是给写稿这件事服务的：
@@ -155,14 +169,16 @@ jiulv/            后端
   connectors.py   连接层：探测两个资料库、生成 sources.yaml
   sync.py         指纹增量同步与常驻监听
   inbox.py        回写池：agent 的产出入库
+  platform_compat.py 跨平台差异：控制台编码、路径同一性、原子写、文件名、遍历
+  doctor.py       环境自检（jiulv doctor）
   compose.py      组稿上下文包
   api.py          FastAPI 路由
   mcp_server.py   MCP stdio server（纯标准库）
   cli.py          命令行
   web/            前端（零构建，原生 JS）
-docs/             架构、接口、接入、收录、连接方式
+docs/             架构、接口、接入、收录、连接方式、Windows 交接
 examples/         四端接入样例
-tests/            51 个测试，跑 pytest 即可
+tests/            75 个测试，跑 pytest 即可
 ```
 
 ## 设计取舍

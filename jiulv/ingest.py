@@ -15,6 +15,7 @@ from . import db
 from .config import Config
 from .extract import chunk_text, extract_meta
 from .parsers import SUPPORTED_EXTS, extract_text, parser_status
+from .platform_compat import is_os_junk, path_key, walk_files
 from .tokenizer import tokenize_joined
 
 HOOK_HEADER_RE = re.compile(r"^##\s+(H-[A-Za-z0-9\u4e00-\u9fff]+-\d+)\s*$", re.M)
@@ -106,12 +107,22 @@ def _compiled(pattern: str):
 
 
 def _iter_files(root: Path, include: List[str], exclude: List[str]) -> Iterable[Path]:
+    """遍历一个来源下的文件。
+
+    用 os.walk 而不是 Path.rglob：rglob 在 3.12 之前会跟进目录联结（junction），
+    Windows 上 `C:\\Users\\x\\AppData\\Local` 里就有成环的联结，一进去就是无限递归。
+    os.walk 默认不跟进符号链接，还能按层排序，保证每次遍历顺序一致。
+    """
     if not root.exists():
         return
-    for path in sorted(root.rglob("*")):
+    for path in walk_files(root):
         if not path.is_file():
             continue
         if path.suffix.lower() not in SUPPORTED_EXTS:
+            continue
+        # Office 的锁文件（~$xxx.docx）、desktop.ini、.DS_Store：解析必然失败，
+        # 收进来只会在「解析失败」列表里刷屏，还会让指纹每开一次文档就变一次
+        if is_os_junk(path.name):
             continue
         rel = path.relative_to(root).as_posix()
         if any(_pattern_hits(rel, path.name, pat) for pat in exclude):
@@ -309,11 +320,19 @@ def _index_doc(conn, doc_id: int, title: str, text: str) -> None:
 
 
 def _prune(conn, source: str, seen_paths: List[str]) -> int:
+    """删掉这次没扫到的文档。
+
+    比较时多做一层小写折叠：Windows 与 macOS 的默认文件系统大小写不敏感，
+    `C:\\KB\\a.md` 和 `c:\\kb\\a.md` 是同一个文件，字符串却不等。
+    只比原字符串的话，换个写法就会把整库当成「全被删了」再重建，
+    注解图谱重算一遍，几千篇要几十秒。折叠之后最多是漏删一个大小写不同的幽灵条目，
+    那比误删安全得多。
+    """
     rows = conn.execute("SELECT id, abs_path FROM docs WHERE source=?", (source,)).fetchall()
-    seen = set(seen_paths)
+    seen = {path_key(p).lower() for p in seen_paths}
     removed = 0
     for row in rows:
-        if row["abs_path"] not in seen:
+        if path_key(row["abs_path"]).lower() not in seen:
             conn.execute("DELETE FROM chunks_fts WHERE doc_id=?", (row["id"],))
             conn.execute("DELETE FROM chunks WHERE doc_id=?", (row["id"],))
             conn.execute("DELETE FROM docs_fts WHERE doc_id=?", (row["id"],))

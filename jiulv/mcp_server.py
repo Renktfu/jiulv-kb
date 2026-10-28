@@ -22,6 +22,7 @@ from . import (
     search as search_mod,
 )
 from .config import Config, load_config
+from .platform_compat import read_stdio_lines, write_stdio_line
 from .taxonomy import load_taxonomy
 
 PROTOCOL_VERSION = "2024-11-05"
@@ -527,29 +528,38 @@ class Server:
 
 
 def serve(config: Optional[Config] = None) -> None:
+    """stdio 上的 JSON-RPC 主循环。
+
+    Windows 上必须按字节读写，不能直接用 sys.stdin / print：
+    stdin 默认按代码页（cp936/cp437）解码，客户端送来的 UTF-8 中文会变成乱码，
+    检索词错了还不报错；stdout 的文本模式又会把 \n 翻成 \r\n。
+    这两件事都不报异常，只是「结果不对」，比崩掉更难查。
+    """
     config = config or load_config()
     if not config.db_path.exists():
         print("提示：数据库还不存在，先运行 jiulv ingest", file=sys.stderr)
     server = Server(config)
     print(f"jiulv-kb MCP server 已启动（stdio），库：{config.db_path}", file=sys.stderr)
-    for line in sys.stdin:
-        line = line.strip()
+
+    for raw in read_stdio_lines():
+        line = raw.strip().lstrip("\ufeff")  # 有些客户端会带 BOM
         if not line:
             continue
         try:
             message = json.loads(line)
         except json.JSONDecodeError:
-            print(json.dumps({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "JSON 解析失败"}}),
-                  flush=True)
+            write_stdio_line(json.dumps(
+                {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "JSON 解析失败"}}
+            ))
             continue
         if isinstance(message, list):
             responses = [r for r in (server.handle(m) for m in message) if r]
             if responses:
-                print(json.dumps(responses, ensure_ascii=False), flush=True)
+                write_stdio_line(json.dumps(responses, ensure_ascii=False))
             continue
         response = server.handle(message)
         if response is not None:
-            print(json.dumps(response, ensure_ascii=False), flush=True)
+            write_stdio_line(json.dumps(response, ensure_ascii=False))
 
 
 if __name__ == "__main__":

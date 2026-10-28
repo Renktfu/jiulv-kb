@@ -10,6 +10,8 @@ from typing import Any, Dict, List
 
 import yaml
 
+from .platform_compat import path_key
+
 DEFAULTS: Dict[str, Any] = {
     "app": {
         "name": "酒旅爆款知识库",
@@ -136,15 +138,18 @@ def _load_generated_sources(base_dir: Path) -> List[Dict[str, Any]]:
 
 
 def _merge_sources(manual: List[Dict[str, Any]], extra: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """手写配置优先。同路径或同名的自动来源直接丢弃，避免同一批文件被收两遍。"""
+    """手写配置优先。同路径或同名的自动来源直接丢弃，避免同一批文件被收两遍。
+
+    同一性用 path_key 判断，不是字符串：Windows 上 `C:\\Data\\KB` 与 `c:/data/kb/`
+    是同一个目录，直接比字符串会漏判。
+    """
     out: List[Dict[str, Any]] = []
     seen_paths, seen_names = set(), set()
     for src in list(manual) + list(extra):
         if src.get("enabled") is False:
             continue
         name = src.get("name")
-        raw = str(src.get("path") or "")
-        real = os.path.realpath(os.path.expanduser(raw))
+        real = path_key(src.get("path") or "")
         if name in seen_names or real in seen_paths:
             continue
         seen_names.add(name)

@@ -11,20 +11,17 @@ DeepSeek Harness）写完一篇，POST 一段 markdown 过来，落成正常素�
 
 from __future__ import annotations
 
-import json
-import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from . import db
 from .config import Config
+from .platform_compat import atomic_write_text, safe_filename
 
 SOURCE_NAME = "Agent 回写"
 INBOX_SUBDIR = Path("data") / "inbox"
 DOC_TYPES = ("note", "hook", "rule", "fact", "guide", "ops", "daily", "index")
-
-_SLUG_RE = re.compile(r"[\\/:*?\"<>|\s]+")
 
 
 def inbox_root(config: Config) -> Path:
@@ -36,8 +33,9 @@ def _now() -> datetime:
 
 
 def _slug(text: str, limit: int = 40) -> str:
-    cleaned = _SLUG_RE.sub("-", (text or "").strip()).strip("-.")
-    return (cleaned[:limit] or "untitled")
+    """标题转文件名。交给 platform_compat 是因为 Windows 的规则更严：
+    非法字符、保留设备名（CON/NUL）、结尾的点都会被它吃掉。"""
+    return safe_filename(text, limit=limit, fallback="untitled")
 
 
 def _ensure_source(config: Config) -> Dict[str, Any]:
@@ -132,12 +130,12 @@ def save(
     if target.exists():
         target = root / f"{_slug(title)}-{_now().strftime('%H%M%S')}.md"
 
-    target.write_text(
+    atomic_write_text(
+        target,
         render(
             title, content, hotel=hotel, region=region, grade=grade,
             author=author, agent=agent, metrics=metrics, note=note,
         ),
-        encoding="utf-8",
     )
 
     source = _ensure_source(config)

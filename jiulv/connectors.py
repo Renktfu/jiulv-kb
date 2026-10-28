@@ -23,6 +23,8 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from .platform_compat import IS_WINDOWS, path_key
+
 SOURCES_FILE = "sources.yaml"
 
 DOC_GLOBS = ["**/*.md", "**/*.txt", "**/*.docx", "**/*.pdf", "**/*.xlsx"]
@@ -201,8 +203,14 @@ def _expand(pattern: str, base: Optional[Path] = None) -> List[Path]:
     后两个可以用环境变量改，装法不标准的人不用改代码：
         JIULV_WB_ROOT=~/mine/WorkBuddy
         JIULV_OC_ROOT=~/mine/.openclaw
+
+    Windows 上还要多一步 normpath：expanduser 拼出来的路径是
+    `C:\\Users\\x` + `/WorkBuddy` 这种反斜杠正斜杠混排，虽然 glob 两种都认，
+    但混排的字符串会原样写进 sources.yaml，人看着别扭，也容易在日志里对不上。
     """
     raw = _resolve(pattern, base)
+    if IS_WINDOWS:
+        raw = os.path.normpath(raw)
     if any(ch in raw for ch in "*?["):
         matches = [Path(p) for p in _glob.glob(raw) if Path(p).is_dir()]
     else:
@@ -256,7 +264,7 @@ def discover(
     `create=True` 只给 connect 用：回写池的目录不存在时建出来。查询状态时不建。
     """
     known = _existing_entries(config)
-    known_paths = {os.path.realpath(e["path"]) for e in known if e.get("path")}
+    known_paths = {path_key(e["path"]) for e in known if e.get("path")}
     known_names = {e.get("name") for e in known if e.get("name")}
 
     out: List[Candidate] = []
@@ -311,7 +319,7 @@ def discover(
                 exclude=list(prof.exclude),
                 exists=True,
             )
-            candidate.connected = os.path.realpath(str(path)) in known_paths or name in known_names
+            candidate.connected = path_key(path) in known_paths or name in known_names
             if with_docs:
                 candidate.docs, candidate.latest_mtime = _count_docs(path, prof.include, prof.exclude)
                 candidate.latest = (
@@ -369,7 +377,7 @@ def write_sources_file(config, sources: List[Dict[str, Any]]) -> Path:
     disabled = [
         item for item in previous
         if item.get("enabled") is False
-        and not any(os.path.realpath(str(item.get("path"))) == os.path.realpath(s["path"]) for s in sources)
+        and not any(path_key(item.get("path")) == path_key(s["path"]) for s in sources)
     ]
     payload = {
         "generated_at": _now_iso(),
