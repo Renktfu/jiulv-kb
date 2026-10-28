@@ -223,6 +223,9 @@ function renderFacets() {
       if (state.filters[filterKey] === item.value) btn.classList.add("active");
       btn.onclick = () => {
         state.filters[filterKey] = state.filters[filterKey] === item.value ? "" : item.value;
+        // 按输入框现在的值算。以前只认上次提交的关键词，输入框删空了
+        // 还拿「三亚」去配「崇礼」，必然 0 命中。
+        state.query = $("#q").value;
         renderFacets();
         runSearch();
       };
@@ -308,6 +311,17 @@ async function runSearch() {
       const empty = el("div", "empty");
       empty.innerHTML =
         "<strong>没有命中</strong>换更短的词试试，比如只留酒店名或「三亚 亲子」。";
+      // 关键词和标签撞在一起时给条出路：清掉词，只看这批。
+      if (hasFilters()) {
+        const labels = filterLabels().join(" · ");
+        const btn = el("button", "chip empty-jump", `只看「${labels}」，不搜关键词`);
+        btn.onclick = () => {
+          state.query = "";
+          $("#q").value = "";
+          runBrowse();
+        };
+        empty.appendChild(btn);
+      }
       view.appendChild(empty);
       return;
     }
@@ -1500,6 +1514,11 @@ async function boot() {
     state.query = $("#q").value;
     location.hash = "#/search";
     if (state.view === "search") runSearch();
+  });
+  // 输入框改了就跟上，删空即视为没有关键词。不然 state.query 会一直
+  // 挂着上一次的词，点侧栏标签时冒出来把人筛空。
+  $("#q").addEventListener("input", () => {
+    state.query = $("#q").value;
   });
   $("#reader-close").onclick = closeReader;
   $("#clear-filters").onclick = () => {
