@@ -25,16 +25,20 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[parsers]"
 
 jiulv init                    # 生成 config.yaml
-# 编辑 config.yaml，把 sources 里的 path 改成你的资料库目录
-jiulv ingest                  # 建索引，1500 篇大约半分钟
+jiulv connect                 # 探测本机的 WorkBuddy / OpenCLaw 资料库，写进 sources.yaml
+jiulv sync                    # 建索引，1500 篇大约半分钟
 jiulv serve                   # 打开 http://127.0.0.1:8787
 ```
 
 `[parsers]` 是 docx/pdf/xlsx 的解析依赖。不装也能跑，只是这几种格式会被跳过。
 
+资料不在默认位置的话，`jiulv connect --dry-run` 先看它探测到了什么，再用
+`JIULV_WB_ROOT` / `JIULV_OC_ROOT` 把根目录指过去；或者直接在 `config.yaml` 里手写
+`sources`，手写的永远优先。接法细节见 [`docs/CONNECT.md`](docs/CONNECT.md)。
+
 ## 界面上有什么
 
-五个页签，都是给写稿这件事服务的：
+六个页签，都是给写稿这件事服务的：
 
 检索。左边按地区、类型、等级、来源筛，右边是结果。点开进右侧阅读器，第一眼是这篇的注解，往下才是原文。
 
@@ -43,6 +47,9 @@ jiulv serve                   # 打开 http://127.0.0.1:8787
 组稿台。填酒店、地区、人群、痛点、钩子类型，点一下拿到完整提示词，一键复制。这是最常用的一页。
 
 钩子库。所有结构化钩子按类型筛，每条带原文、适用人群、对应痛点、心理机制、期望动作。
+
+来源。每个资料库连在哪、库里多少篇、上次什么时候同步，右上角一个按钮手动同步一次。
+这一页存在的意义是让库不是黑盒——看不到来源，就不知道答案的出处。
 
 数据。文档数、段落数、注解数、概念数、类型分布、来源分布，以及回填的发布数据。
 
@@ -73,9 +80,11 @@ jiulv mcp                                  # MCP stdio server
 jiulv tools --format openai                # 导出 function calling schema
 ```
 
-工具一共九个：`kb_search`、`kb_get_doc`、`kb_annotations`、`kb_graph`、`kb_hooks`、`kb_style_rules`、`kb_context_pack`、`kb_stats`、`kb_feedback`。
+工具一共十一个：`kb_search`、`kb_get_doc`、`kb_annotations`、`kb_graph`、`kb_hooks`、`kb_style_rules`、`kb_context_pack`、`kb_stats`、`kb_feedback`、`kb_sync`、`kb_save`。
 
-其中两个是这次为「连起来」加的：`kb_annotations` 把一个概念下所有笔记的注解汇总去重（写某家酒店前调一次，等于把库里关于它的判断全摊在桌上），`kb_graph` 用来顺着概念找相关的东西。`kb_get_doc` 返回的也不只是原文，还带这篇的注解和所属概念。
+`kb_annotations` 把一个概念下所有笔记的注解汇总去重（写某家酒店前调一次，等于把库里关于它的判断全摊在桌上），`kb_graph` 用来顺着概念找相关的东西，`kb_get_doc` 返回的也不只是原文，还带着这篇的注解和所属概念。
+
+`kb_sync` 和 `kb_save` 是闭环的两头：前者把两个资料库的新增同步进来，后者把 agent 写完的稿子连同「为什么这么写」回写进库。写完就存档，下一篇组稿它已经在参考里了。
 
 各端的配置文件样例在 `examples/` 下，字段含义和放置位置见 `docs/INTEGRATIONS.md`：
 
@@ -93,7 +102,7 @@ Agent 会自己取规则、挑钩子、找同地区爆款结构，再按提示�
 
 ## 接口一览
 
-完整定义看服务启动后的 `/docs`（自动生成的 OpenAPI）。常用的六个：
+完整定义看服务启动后的 `/docs`（自动生成的 OpenAPI）。常用的是这些：
 
 - `GET /api/v1/search?q=三亚 亲子&region=海南&limit=10` 检索，`mode` 可选 `keyword`／`semantic`／`hybrid`／`auto`
 - `GET /api/v1/docs/{uid}` 取一篇全文，附带注解、所属概念、反向链接、同酒店相关篇目
@@ -103,6 +112,11 @@ Agent 会自己取规则、挑钩子、找同地区爆款结构，再按提示�
 - `POST /api/v1/compose` 组稿，返回 `prompt` 与用到的资料清单
 - `POST /api/v1/feedback` 回填发布数据
 - `GET /api/v1/stats` 库的规模与分布
+- `GET /api/v1/sources` 连了哪些资料库、各多少篇、上次同步时间
+- `GET /api/v1/connectors` 本机探测到哪些库（含没连的）
+- `POST /api/v1/sync` 增量同步，指纹没变会返回 `skipped: true`
+- `POST /api/v1/inbox` 回写一篇稿子进库，立刻可检索
+- `GET /api/v1/inbox` 回写池最近条目
 
 鉴权是请求头 `X-API-Key` 或 `Authorization: Bearer`。`security.api_keys` 留空时本机访问不需要密钥，适合单机使用；要给团队共用就配上密钥，并把 `allow_localhost_without_key` 关掉。
 
@@ -138,14 +152,17 @@ jiulv/            后端
   search.py       BM25 / 向量 / RRF 混合
   annotate.py     注解抽取：小节、采集点评、指标推算
   graph.py        概念图：概念抽取、双向链接、子图查询
+  connectors.py   连接层：探测两个资料库、生成 sources.yaml
+  sync.py         指纹增量同步与常驻监听
+  inbox.py        回写池：agent 的产出入库
   compose.py      组稿上下文包
   api.py          FastAPI 路由
   mcp_server.py   MCP stdio server（纯标准库）
   cli.py          命令行
   web/            前端（零构建，原生 JS）
-docs/             架构、接口、接入、收录约定
+docs/             架构、接口、接入、收录、连接方式
 examples/         四端接入样例
-tests/            34 个测试，跑 pytest 即可
+tests/            51 个测试，跑 pytest 即可
 ```
 
 ## 设计取舍

@@ -160,6 +160,42 @@ TOOLS: List[Dict[str, Any]] = [
             },
         },
     },
+    {
+        "name": "kb_sync",
+        "description": "把 WorkBuddy / OpenCLaw 资料库的新增与改动同步进库。很久没搜到新素材时调一次；"
+        "指纹没变会直接返回 skipped=true，代价很低。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "force": {"type": "boolean", "default": False, "description": "无变化也强制重扫"},
+                "source": {"type": "string", "description": "只同步某个来源名"},
+            },
+        },
+    },
+    {
+        "name": "kb_save",
+        "description": "把写完的稿子回写进库，立刻可被检索到。一篇稿子写完后调一次，库会随产出一起变厚。"
+        "note 一栏写清「这篇为什么这么写」，下一篇组稿会用到。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "content": {"type": "string", "description": "正文 markdown"},
+                "kind": {
+                    "type": "string",
+                    "default": "note",
+                    "description": "note 笔记 / hook 钩子 / rule 规则 / fact 硬资料 / guide 房型攻略 / ops 代运营",
+                },
+                "hotel": {"type": "string"},
+                "region": {"type": "string"},
+                "grade": {"type": "string", "description": "S/A/B，不确定就留空"},
+                "agent": {"type": "string", "description": "谁写的：openclaw / workbuddy / codex"},
+                "note": {"type": "string", "description": "为什么这么写，一句话"},
+                "metrics": {"type": "object", "description": "views/likes/saves/comments，发布后再补"},
+            },
+            "required": ["title", "content"],
+        },
+    },
 ]
 
 
@@ -380,6 +416,47 @@ class Server:
         finally:
             conn.close()
 
+    def tool_sync(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        from . import sync as sync_mod
+
+        result = sync_mod.sync_once(
+            self.config,
+            force=bool(args.get("force")),
+            only_source=args.get("source") or None,
+        )
+        # 报告里 by_type 之类对 agent 没用，只留规模变化
+        report = result.get("report") or {}
+        if report:
+            result["report"] = {
+                "added": report.get("added", 0),
+                "updated": report.get("updated", 0),
+                "removed": report.get("removed", 0),
+                "annotations": report.get("annotations", 0),
+                "duration_s": report.get("duration_s", 0),
+            }
+        return result
+
+    def tool_save(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        from . import inbox as inbox_mod
+
+        try:
+            result = inbox_mod.save(
+                self.config,
+                title=args.get("title", ""),
+                content=args.get("content", ""),
+                kind=args.get("kind", "note"),
+                hotel=args.get("hotel", ""),
+                region=args.get("region", ""),
+                grade=args.get("grade", ""),
+                agent=args.get("agent", ""),
+                note=args.get("note", ""),
+                metrics=args.get("metrics") or {},
+            )
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        result.pop("report", None)
+        return result
+
     def dispatch(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         table: Dict[str, Callable[[Dict[str, Any]], Dict[str, Any]]] = {
             "kb_search": self.tool_search,
@@ -391,6 +468,8 @@ class Server:
             "kb_context_pack": self.tool_context_pack,
             "kb_stats": self.tool_stats,
             "kb_feedback": self.tool_feedback,
+            "kb_sync": self.tool_sync,
+            "kb_save": self.tool_save,
         }
         handler = table.get(name)
         if not handler:

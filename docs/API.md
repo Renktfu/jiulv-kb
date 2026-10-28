@@ -119,7 +119,56 @@
 
 ## GET /api/v1/sources
 
-已收录来源，含路径、文档数、上次扫描时间。排查「为什么这篇没进来」先看这个。
+已连接的来源：`name`、`group`（workbuddy／openclaw／inbox）、`path`、`exists`、`doc_count`、`last_scan`。
+顶层还有 `last_sync` 和 `total_docs`。排查「为什么这篇没进来」先看这个。
+
+和 `/api/v1/connectors` 的区别：这里只列**配置里连着的**，那边连没连的都列，用来发现「本机还有个库没接」。
+
+## GET /api/v1/connectors
+
+探测本机所有认得出来的资料库：`profile`、`title`、`path`、`exists`、`docs`（磁盘上的可收录篇数）、`connected`、`last_scan`。
+顶层 `connected` / `exists` / `docs_on_disk` / `last_sync`。只读，不写文件。
+
+## POST /api/v1/connect
+
+把探测到、但还没连的库写进 `sources.yaml`。query 参数 `deep=true` 连历史项目库，
+`only=wb-library,oc-reference` 限定类型，`sync=true` 连完立刻同步一次。写完不需要重启服务。
+
+## POST /api/v1/sync
+
+增量同步。请求体 `{"force": false, "source": null}`。
+
+指纹（每个来源的文件数、总字节、最新 mtime）没变时返回
+`{"ok": true, "skipped": true, "reason": "指纹没变，跳过"}`，不开数据库，约 0.1 秒。
+有变化时跑收录并返回 `report`（`added`／`updated`／`removed`／`annotations`／`duration_s`）
+和 `changed`（哪几个来源变了）。
+
+## POST /api/v1/inbox
+
+回写一篇稿子进库，落盘到 `data/inbox/inbox_<kind>/<日期>/`，走同一条解析与注解流水线，
+返回后立刻可被检索到。
+
+```json
+{
+  "title": "三亚艾迪逊带娃实测",
+  "content": "低楼层看不到海，带娃要选高层双床。",
+  "kind": "note",
+  "hotel": "三亚艾迪逊",
+  "region": "海南",
+  "grade": "B",
+  "agent": "openclaw",
+  "note": "用「楼层」这个具体细节否定默认选项",
+  "metrics": {"likes": 0, "saves": 0, "comments": 0}
+}
+```
+
+`kind` 取 `note`／`hook`／`rule`／`fact`／`guide`／`ops`／`daily`／`index`，决定它进库后的
+`doc_type`。`note` 字段是「这篇为什么这么写」，会写进正文顶部，下一篇组稿时会出现在参考里。
+`content` 为空返回 400。
+
+## GET /api/v1/inbox
+
+回写池最近的条目：`title`、`kind`、`path`、`mtime`、`bytes`。参数 `limit` 默认 20。
 
 ## 错误约定
 

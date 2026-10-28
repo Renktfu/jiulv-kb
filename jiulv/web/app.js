@@ -795,6 +795,118 @@ async function renderStats() {
   }
 }
 
+/* ------------------------------------------------------------------ 来源 */
+
+// 资料从哪来：两个 agent 的资料库各自连在哪、各多少篇、上次什么时候同步。
+// 这一页存在的意义是让「库」不是一个黑盒——看不到来源，就不知道答案的出处。
+
+const GROUP_LABEL = {
+  workbuddy: "WorkBuddy",
+  openclaw: "OpenCLaw",
+  inbox: "回写",
+  default: "自定义",
+};
+
+function sourceRow(item, tag) {
+  const row = el("div", "src-row" + (item.exists ? "" : " missing"));
+  const name = el("span", "src-name");
+  if (tag) name.appendChild(el("em", "src-tag", tag));
+  name.appendChild(document.createTextNode(item.name));
+  row.appendChild(name);
+  row.appendChild(el("span", "src-count", item.exists ? fmtNum(item.doc_count) || "0" : "断开"));
+  row.appendChild(el("code", "src-path", item.path));
+  return row;
+}
+
+async function renderSources() {
+  setView("sources");
+  const view = $("#view");
+  view.innerHTML = '<p class="loading">载入中…</p>';
+
+  let data;
+  let pool;
+  try {
+    [data, pool] = await Promise.all([
+      api("/api/v1/sources"),
+      api("/api/v1/inbox?limit=8").catch(() => ({ items: [] })),
+    ]);
+  } catch (error) {
+    view.innerHTML = `<div class="empty"><strong>读不到来源</strong>${escapeHtml(error.message)}</div>`;
+    return;
+  }
+
+  view.innerHTML = "";
+  const head = el("div", "view-head");
+  const left = el("div");
+  left.appendChild(el("h2", null, "资料从哪来"));
+  const when = (data.last_sync || "").slice(0, 16).replace("T", " ");
+  left.appendChild(
+    el("p", "meta", `${data.items.length} 个来源 · ${fmtNum(data.total_docs)} 篇 · 最近同步 ${when || "还没同步过"}`)
+  );
+  head.appendChild(left);
+
+  const btn = el("button", "ghost", "同步一次");
+  btn.onclick = async () => {
+    btn.disabled = true;
+    btn.textContent = "同步中…";
+    try {
+      const result = await api("/api/v1/sync", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      toast(
+        result.skipped
+          ? "资料库没有变化"
+          : `已同步 +${result.report.added} 篇 / ~${result.report.updated} 篇`
+      );
+      renderSources();
+    } catch (error) {
+      toast("同步失败：" + error.message);
+      btn.disabled = false;
+      btn.textContent = "同步一次";
+    }
+  };
+  head.appendChild(btn);
+  view.appendChild(head);
+
+  const groups = { workbuddy: [], openclaw: [], inbox: [], other: [] };
+  for (const item of data.items) {
+    (groups[item.group] || groups.other).push(item);
+  }
+  for (const key of ["workbuddy", "openclaw", "inbox", "other"]) {
+    const items = groups[key];
+    if (!items.length) continue;
+    const section = el("div", "bars");
+    const title = el("h3", null, GROUP_LABEL[key] || "自定义");
+    title.style.cssText =
+      "font-size:12px;letter-spacing:.1em;color:var(--ink-3);font-weight:500;margin:0 0 8px";
+    section.appendChild(title);
+    const list = el("div", "src-list");
+    for (const item of items) list.appendChild(sourceRow(item));
+    section.appendChild(list);
+    view.appendChild(section);
+  }
+
+  if ((pool.items || []).length) {
+    const section = el("div", "bars");
+    section.style.marginTop = "26px";
+    const title = el("h3", null, "回写池 · 最近 8 条");
+    title.style.cssText =
+      "font-size:12px;letter-spacing:.1em;color:var(--ink-3);font-weight:500;margin:0 0 8px";
+    section.appendChild(title);
+    const list = el("div", "src-list");
+    for (const item of pool.items) {
+      list.appendChild(sourceRow({ name: item.title, path: item.path, exists: true, doc_count: 0 }, item.kind || "note"));
+    }
+    section.appendChild(list);
+    view.appendChild(section);
+  } else {
+    view.appendChild(
+      el("p", "meta", "回写池还是空的：agent 写完后 POST /api/v1/inbox，或调 MCP 的 kb_save。")
+    );
+  }
+}
+
 /* ------------------------------------------------------------------ 图谱 */
 
 // 概念类型 → 颜色。用的是纸感的低饱和色，跟正文不打架。
@@ -1223,6 +1335,7 @@ function route() {
   if (hash.startsWith("compose")) renderCompose();
   else if (hash.startsWith("hooks")) renderHooks();
   else if (hash.startsWith("stats")) renderStats();
+  else if (hash.startsWith("sources")) renderSources();
   else if (hash.startsWith("graph")) renderGraph();
   else runSearch();
 }

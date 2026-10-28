@@ -9,6 +9,11 @@ data/export/
 # 真实资料库绝不进仓库
 corpus/
 config.yaml
+# jiulv connect 的生成物，含本机绝对路径
+sources.yaml
+data/sync_state.json
+data/inbox/
+data/watch.log
 
 # Python
 __pycache__/

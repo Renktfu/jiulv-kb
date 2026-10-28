@@ -74,6 +74,8 @@ class DocMeta:
 
 
 INDEX_NAME_HINTS = ("索引", "总览", "目录", "导航", "readme", "README")
+# 回写池的目录名自带类型（data/inbox/inbox_hook/2026-10-28/xxx.md），优先按它判
+INBOX_KIND_RE = re.compile(r"(?:^|/)inbox_(note|hook|rule|fact|guide|ops|daily|index)(?:/|$)")
 
 
 def classify(rel_path: str, text: str) -> str:
@@ -85,6 +87,9 @@ def classify(rel_path: str, text: str) -> str:
     name = rel_path.replace("\\", "/").rsplit("/", 1)[-1]
     if any(hint in name for hint in INDEX_NAME_HINTS):
         return "index"
+    inbox_kind = INBOX_KIND_RE.search(rel_path.replace("\\", "/"))
+    if inbox_kind:
+        return inbox_kind.group(1)
     parts = rel_path.replace("\\", "/").split("/")
     dirs = "/".join(parts[:-1])
     for keywords, doc_type in TYPE_RULES:

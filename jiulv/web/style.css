@@ -536,3 +536,41 @@ html, body {
 
 /* display:flex 会盖掉 [hidden] 的默认 display:none，折叠得单独兜一手 */
 .notes-list[hidden] { display: none; }
+
+/* 来源页：一行一个库，路径放第二行，不撑破版面 */
+.src-list { display: flex; flex-direction: column; }
+.src-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 56px;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.src-row .src-tag {
+  font-style: normal;
+  font-size: 10.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-right: 8px;
+}
+.src-row .src-name { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.src-row .src-count {
+  text-align: right;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+.src-row .src-path {
+  grid-column: 1 / -1;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: .85;
+}
+.src-row.missing { opacity: .5; }

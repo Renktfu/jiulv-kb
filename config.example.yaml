@@ -9,6 +9,13 @@ app:
   host: 127.0.0.1
   port: 8787
 
+# 连接层：jiulv connect 会探测本机的 WorkBuddy / OpenCLaw 资料库，
+# 把结果写进同目录的 sources.yaml，不覆盖这个文件。
+# 规则：这里手写的 sources 永远优先；sources.yaml 里的条目加 enabled: false 可停用。
+connect:
+  # jiulv watch 的默认轮询间隔（秒）。指纹没变就整轮跳过，调小也不贵
+  watch_interval: 120
+
 # 收录来源。每个 source 是一个目录，递归扫描 include 里的格式。
 # group 只用于分组统计和筛选，随便起名。
 sources:

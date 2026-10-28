@@ -18,7 +18,17 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import __version__, annotate as annotate_mod, compose as compose_mod, db, graph as graph_mod, search as search_mod
+from . import (
+    __version__,
+    annotate as annotate_mod,
+    compose as compose_mod,
+    connectors as connectors_mod,
+    db,
+    graph as graph_mod,
+    inbox as inbox_mod,
+    search as search_mod,
+    sync as sync_mod,
+)
 from .config import Config, load_config
 from .taxonomy import load_taxonomy
 
@@ -61,6 +71,26 @@ class FeedbackRequest(BaseModel):
 
 class GenerateRequest(BaseModel):
     prompt: str = Field(..., description="通常直接传 /compose 返回的 prompt")
+
+
+class SyncRequest(BaseModel):
+    force: bool = Field(False, description="指纹没变也强制重扫")
+    source: Optional[str] = Field(None, description="只同步某个来源")
+
+
+class InboxRequest(BaseModel):
+    """agent 写完稿回写进库，下一篇组稿就能拿它当参考。"""
+
+    title: str = Field(..., description="标题")
+    content: str = Field(..., description="正文 markdown")
+    kind: str = Field("note", description="note/hook/rule/fact/guide/ops/daily/index")
+    hotel: str = ""
+    region: str = ""
+    grade: str = Field("", description="S/A/B，不知道就留空")
+    author: str = ""
+    agent: str = Field("", description="哪个 agent 写的：openclaw / workbuddy / codex / deepseek")
+    note: str = Field("", description="这篇为什么这么写，一句话")
+    metrics: Dict[str, int] = Field(default_factory=dict, description="views/likes/saves/comments")
 
 
 def _now() -> str:
@@ -121,6 +151,14 @@ def create_app(config_path: str | None = None) -> FastAPI:
 
     guard = [Depends(auth)]
 
+    def _fresh_config() -> Config:
+        """连接/同步会改 sources.yaml，所以每次用前重读磁盘，并就地更新同一个实例，
+        这样闭包里引用 config 的旧端点也会立刻看到新来源。"""
+        fresh = load_config(config_path)
+        if fresh.data != config.data:
+            config.data = fresh.data
+        return config
+
     # ------------------------------------------------------------ 基础
 
     @app.get("/api/v1/health", tags=["基础"])
@@ -144,7 +182,65 @@ def create_app(config_path: str | None = None) -> FastAPI:
     @app.get("/api/v1/sources", tags=["基础"], dependencies=guard)
     def sources(conn=Depends(get_conn)) -> Dict[str, Any]:
         rows = conn.execute("SELECT * FROM sources ORDER BY name").fetchall()
-        return {"items": [dict(r) for r in rows]}
+        indexed = {r["name"]: dict(r) for r in rows}
+        state = sync_mod.read_state(config)
+        items = []
+        for src in config.sources:
+            entry = indexed.get(src["name"], {})
+            items.append(
+                {
+                    "name": src["name"],
+                    "group": src.get("group", ""),
+                    "path": src["path"],
+                    "exists": Path(src["path"]).exists(),
+                    "doc_count": entry.get("doc_count", 0),
+                    "last_scan": entry.get("last_scan", ""),
+                    "generated": bool((state.get("sources") or {}).get(src["name"])),
+                }
+            )
+        return {
+            "items": items,
+            "last_sync": state.get("last_sync", ""),
+            "total_docs": sum(i["doc_count"] for i in items),
+        }
+
+    @app.get("/api/v1/connectors", tags=["连接"], dependencies=guard)
+    def connectors_api() -> Dict[str, Any]:
+        """本机有哪些库、连了哪些、各多少篇。不写文件。"""
+        return connectors_mod.status(_fresh_config())
+
+    @app.post("/api/v1/connect", tags=["连接"], dependencies=guard)
+    def connect_api(
+        deep: bool = Query(False, description="连历史项目库"),
+        only: Optional[str] = Query(None, description="只连指定 profile，逗号分隔"),
+        sync: bool = Query(False, description="连上后立刻同步"),
+    ) -> Dict[str, Any]:
+        fresh = _fresh_config()
+        picked = [p.strip() for p in (only or "").split(",") if p.strip()] or None
+        result = connectors_mod.connect(fresh, deep=deep, only=picked)
+        _fresh_config()  # 让 sources.yaml 的新条目立刻生效
+        if sync and result["connected"]:
+            result["sync"] = sync_mod.sync_once(config, force=True)
+        return result
+
+    @app.post("/api/v1/sync", tags=["连接"], dependencies=guard)
+    def sync_api(req: SyncRequest) -> Dict[str, Any]:
+        """增量同步。指纹没变会直接返回 skipped=true。"""
+        return sync_mod.sync_once(_fresh_config(), force=req.force, only_source=req.source)
+
+    @app.get("/api/v1/inbox", tags=["连接"], dependencies=guard)
+    def inbox_list(limit: int = 20) -> Dict[str, Any]:
+        return {"items": inbox_mod.recent(config, limit=limit)}
+
+    @app.post("/api/v1/inbox", tags=["连接"], dependencies=guard)
+    def inbox_save(req: InboxRequest) -> Dict[str, Any]:
+        """回写一篇稿子进库，立刻可被检索到。"""
+        payload = req.model_dump() if hasattr(req, "model_dump") else req.dict()
+        try:
+            return inbox_mod.save(_fresh_config(), **payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
 
     @app.get("/api/v1/taxonomy", tags=["基础"], dependencies=guard)
     def taxonomy() -> Dict[str, Any]:

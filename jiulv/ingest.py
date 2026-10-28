@@ -120,6 +120,15 @@ def _iter_files(root: Path, include: List[str], exclude: List[str]) -> Iterable[
             yield path
 
 
+def iter_source_files(root, include, exclude) -> Iterable[Path]:
+    """公开的文件遍历：连接层统计「这个库有多少篇」、同步层算指纹都用它。
+
+    和真正收录时用的是同一套 include/exclude 判定，所以界面上显示的数字
+    就是会入库的数字，不会出现「看到 800 篇、入库 600 篇」的对不上。
+    """
+    return _iter_files(Path(root), list(include or []), list(exclude or []))
+
+
 def ingest(
     config: Config,
     conn,
@@ -128,6 +137,7 @@ def ingest(
     verbose: bool = False,
     prune: bool = True,
     logger=None,
+    refresh_derived: Optional[bool] = None,
 ) -> IngestReport:
     started = datetime.now()
     report = IngestReport()
@@ -271,12 +281,16 @@ def ingest(
                  "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (now_iso(),))
     conn.commit()
 
-    # 注解与概念图都从 docs.content 现算，不读盘也不联网，全量重跑比维护增量状态便宜
-    from . import annotate as annotate_mod
-    from . import graph as graph_mod
+    # 注解与概念图都从 docs.content 现算，不读盘也不联网。没有新增/改动时跳过，
+    # 否则每轮同步都要白算一遍一万多条注解——监听模式下这是最贵的一步。
+    touched = report.added + report.updated + report.removed
+    should_refresh = refresh_derived if refresh_derived is not None else (bool(touched) or rebuild)
+    if should_refresh:
+        from . import annotate as annotate_mod
+        from . import graph as graph_mod
 
-    report.annotations = int(annotate_mod.run(conn, logger=logger).get("total", 0))
-    graph_mod.build(conn, config, logger=logger)
+        report.annotations = int(annotate_mod.run(conn, logger=logger).get("total", 0))
+        graph_mod.build(conn, config, logger=logger)
 
     report.duration_s = (datetime.now() - started).total_seconds()
     return report

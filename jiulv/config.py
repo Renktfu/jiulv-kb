@@ -18,6 +18,10 @@ DEFAULTS: Dict[str, Any] = {
         "port": 8787,
     },
     "sources": [],
+    "connect": {
+        # jiulv watch 的默认轮询间隔（秒）。指纹没变就整轮跳过，调小也不贵
+        "watch_interval": 120,
+    },
     "search": {
         "max_limit": 50,
         "fallback_to_or": True,
@@ -81,7 +85,6 @@ class Config:
         self.data = data
         self.base_dir = base_dir
         self.path = path
-
     # --- 便捷访问 ---
     def __getitem__(self, key: str) -> Any:
         return self.data[key]
@@ -104,6 +107,8 @@ class Config:
     def sources(self) -> List[Dict[str, Any]]:
         out = []
         for src in self.get("sources", default=[]) or []:
+            if not src.get("path"):
+                continue
             path = Path(src["path"])
             if not path.is_absolute():
                 path = self.base_dir / path
@@ -116,6 +121,36 @@ class Config:
             item.setdefault("exclude", [])
             out.append(item)
         return out
+
+
+def _load_generated_sources(base_dir: Path) -> List[Dict[str, Any]]:
+    """读 `jiulv connect` 生成的 sources.yaml。"""
+    path = base_dir / "sources.yaml"
+    if not path.exists():
+        return []
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return []
+    return [s for s in (data.get("sources") or []) if isinstance(s, dict) and s.get("path")]
+
+
+def _merge_sources(manual: List[Dict[str, Any]], extra: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """手写配置优先。同路径或同名的自动来源直接丢弃，避免同一批文件被收两遍。"""
+    out: List[Dict[str, Any]] = []
+    seen_paths, seen_names = set(), set()
+    for src in list(manual) + list(extra):
+        if src.get("enabled") is False:
+            continue
+        name = src.get("name")
+        raw = str(src.get("path") or "")
+        real = os.path.realpath(os.path.expanduser(raw))
+        if name in seen_names or real in seen_paths:
+            continue
+        seen_names.add(name)
+        seen_paths.add(real)
+        out.append(src)
+    return out
 
 
 def load_config(path: str | os.PathLike | None = None) -> Config:
@@ -138,4 +173,9 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
         base_dir = resolved.parent
 
     merged = _expand(_merge(DEFAULTS, data))
-    return Config(merged, base_dir=Path(base_dir), path=resolved)
+    base = Path(base_dir)
+    merged["sources"] = _merge_sources(
+        merged.get("sources") or [],
+        [_expand(item) for item in _load_generated_sources(base)],
+    )
+    return Config(merged, base_dir=base, path=resolved)

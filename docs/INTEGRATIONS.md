@@ -17,7 +17,7 @@ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
   | jiulv --config /绝对路径/config.yaml mcp
 ```
 
-能看到 `serverInfo` 和九个工具名，就说明 server 本身没问题。接不上时先跑这一句，把问题定位在 server 侧还是客户端侧。
+能看到 `serverInfo` 和十一个工具名，就说明 server 本身没问题。接不上时先跑这一句，把问题定位在 server 侧还是客户端侧。
 
 ## WorkBuddy
 
@@ -98,6 +98,8 @@ jiulv tools --format openai > tools.json
 - `kb_context_pack` → `POST /api/v1/compose`
 - `kb_stats` → `GET /api/v1/stats`
 - `kb_feedback` → `POST /api/v1/feedback`
+- `kb_sync` → `POST /api/v1/sync`
+- `kb_save` → `POST /api/v1/inbox`
 
 `examples/http/client.py` 是完整的调用示例，二十来行，照着改就行。
 
@@ -109,6 +111,13 @@ jiulv tools --format openai > tools.json
 
 `kb_get_doc` 现在返回的不只是原文，还带这篇的注解和所属概念。Agent 读到一篇就能知道「这篇为什么值得学」，不用额外调一次。
 
+`kb_sync` 是「补素材」用的。库里搜不到想要的东西时先别急着说没有，调一次 sync，
+把两个资料库今天新增的收进来再搜。指纹没变会直接返回 `skipped: true`，代价很低。
+
+`kb_save` 是反方向的，写完调一次。它会把你写的正文连同 `note`（这篇为什么这么写）
+落成一篇正常素材，走同一条解析与注解流水线。下一篇写同一家酒店时，这篇已经在参考里了。
+这两个工具凑起来才是闭环：素材进得来，产出回得去。
+
 ## 接上之后怎么用才对
 
 三个用法，按顺序用效果最好。
@@ -118,6 +127,9 @@ jiulv tools --format openai > tools.json
 查事实。写到具体房型、楼层、朝向、接机时长时，先用 `kb_search` 或 `kb_get_doc` 确认。库里有就写，没有就别写，这是这套东西最重要的使用纪律。
 
 发完回填。`kb_feedback` 记一笔，钩子类型要填对。积累几十条之后，`/api/v1/outcomes` 里的 `by_hook_type` 会告诉你哪类钩子在你的账号上真的有效。
+
+写完存档。`kb_save` 把稿子和判断一起回写进库，这是让库越用越厚的唯一办法。只取不存，
+半年后库里还是那批老素材。
 
 ## 排错
 

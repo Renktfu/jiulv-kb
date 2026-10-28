@@ -34,7 +34,88 @@ def cmd_init(args: argparse.Namespace) -> int:
             print("找不到 config.example.yaml，请从仓库根目录复制")
             return 1
     (target / "data").mkdir(exist_ok=True)
-    print("下一步：编辑 config.yaml 里的 sources 路径，然后运行  jiulv ingest")
+    print("下一步：jiulv connect 探测本机资料库（或手改 config.yaml 里的 sources 路径），然后 jiulv sync")
+    return 0
+
+
+def cmd_connect(args: argparse.Namespace) -> int:
+    """探测本机的 WorkBuddy / OpenCLaw 资料库，生成 sources.yaml。"""
+    from . import connectors
+
+    config = load_config(args.config)
+    only = [p.strip() for p in (args.only or "").split(",") if p.strip()] or None
+    result = connectors.connect(config, deep=args.deep, only=only, dry_run=args.dry_run)
+
+    if args.json:
+        _print(result)
+    else:
+        picked = result["connected"]
+        if picked:
+            print(f"新连上 {len(picked)} 个来源：" if not args.dry_run else f"可连 {len(picked)} 个来源：")
+            for item in picked:
+                print(f"  [{item['group']}] {item['name']}  {item['docs']} 篇  {item['path']}")
+        else:
+            print("没有新来源可连。")
+        if result["skipped"]:
+            print("\n跳过：")
+            for item in result["skipped"]:
+                print(f"  {item['title']}：{item['reason']}")
+        if result.get("written"):
+            print(f"\n已写入 {result['written']}")
+            print("下一步：jiulv sync（或 jiulv watch 常驻监听）")
+
+    if args.sync and result["connected"] and not args.dry_run:
+        from . import sync as sync_mod
+
+        fresh = load_config(args.config)
+        report = sync_mod.sync_once(
+            fresh, force=True, logger=lambda msg: print(msg, flush=True)
+        )
+        _print({"sync": {k: v for k, v in report.items() if k != "report"},
+                "report": report.get("report")})
+    return 0 if result["ok"] else 1
+
+
+def cmd_sync(args: argparse.Namespace) -> int:
+    """增量同步：指纹变了才收录。"""
+    from . import sync as sync_mod
+
+    config = load_config(args.config)
+    result = sync_mod.sync_once(
+        config,
+        force=args.force,
+        only_source=args.source,
+        logger=None if args.quiet else (lambda msg: print(msg, flush=True)),
+    )
+    if args.json:
+        _print(result)
+        return 0 if result.get("ok") else 1
+    if result.get("skipped"):
+        print(f"无变化（{result.get('reason')}）")
+        return 0
+    report = result.get("report") or {}
+    print(
+        f"已同步：+{report.get('added', 0)} 篇  ~{report.get('updated', 0)} 篇  "
+        f"-{report.get('removed', 0)} 篇，注解 {report.get('annotations', 0)} 条，"
+        f"耗时 {result.get('duration_s')}s"
+    )
+    if result.get("changed"):
+        print("变化来源：" + "、".join(result["changed"]))
+    return 0
+
+
+def cmd_watch(args: argparse.Namespace) -> int:
+    """常驻监听，隔一会儿看一次两个资料库有没有新东西。"""
+    from . import sync as sync_mod
+
+    config = load_config(args.config)
+    interval = args.interval or int(config.get("connect", "watch_interval", default=120))
+    sync_mod.watch(
+        config,
+        interval=interval,
+        logger=lambda msg: print(msg, flush=True),
+        max_rounds=1 if args.once else None,
+    )
     return 0
 
 
@@ -53,6 +134,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         only_source=args.source,
         verbose=args.verbose or args.quiet is False,
         prune=not args.no_prune,
+        refresh_derived=True if args.refresh_derived else None,
         logger=lambda msg: print(msg, flush=True) if not args.quiet else None,
     )
     conn.close()
@@ -228,10 +310,32 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.add_argument("--force", action="store_true")
     p_init.set_defaults(func=cmd_init)
 
+    p_connect = sub.add_parser("connect", help="探测本机 WorkBuddy / OpenCLaw 资料库并接入")
+    p_connect.add_argument("--dry-run", action="store_true", help="只看探测结果，不写配置")
+    p_connect.add_argument("--deep", action="store_true", help="连历史项目库（夹带代码仓库，较慢）")
+    p_connect.add_argument("--only", help="只连指定 profile，逗号分隔，例如 wb-library,oc-reference")
+    p_connect.add_argument("--sync", action="store_true", help="连上后立刻同步一次")
+    p_connect.add_argument("--json", action="store_true")
+    p_connect.set_defaults(func=cmd_connect)
+
+    p_sync = sub.add_parser("sync", help="增量同步：资料库有变化才收录")
+    p_sync.add_argument("--force", action="store_true", help="指纹没变也强制跑一遍")
+    p_sync.add_argument("--source", help="只同步某个来源")
+    p_sync.add_argument("--quiet", "-q", action="store_true")
+    p_sync.add_argument("--json", action="store_true")
+    p_sync.set_defaults(func=cmd_sync)
+
+    p_watch = sub.add_parser("watch", help="常驻监听两个资料库，有变化就收录")
+    p_watch.add_argument("--interval", type=int, default=0, help="轮询间隔秒数，默认 120")
+    p_watch.add_argument("--once", action="store_true", help="只看一轮就退出")
+    p_watch.set_defaults(func=cmd_watch)
+
     p_ingest = sub.add_parser("ingest", help="扫描资料库并建索引")
     p_ingest.add_argument("--rebuild", action="store_true", help="清空重建")
     p_ingest.add_argument("--source", help="只处理某个来源")
     p_ingest.add_argument("--no-prune", action="store_true", help="不删除已消失的文件")
+    p_ingest.add_argument("--refresh-derived", action="store_true",
+                          help="没有任何文件改动也重算注解与图谱")
     p_ingest.add_argument("--verbose", "-v", action="store_true")
     p_ingest.add_argument("--quiet", "-q", action="store_true")
     p_ingest.set_defaults(func=cmd_ingest)
