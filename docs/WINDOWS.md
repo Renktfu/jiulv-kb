@@ -34,6 +34,34 @@ WorkBuddy / DeepSeek Harness 这类 agent 直接调库。
 
 ## 二、Windows 上从零跑起来
 
+### 最快的一条路：拿到的是分发包
+
+如果对方给的是一个文件夹（里面有 `windows\` 这个子目录），**不用看下面那一堆命令**：
+
+1. 装 Python（只需一次）：<https://www.python.org/downloads/windows/>，
+   安装第一步勾 **Add python.exe to PATH**。
+2. 把 `windows` 整个文件夹拷到本地盘（别放 OneDrive），双击里面的
+   `双击启动.bat`。
+3. 等它自己装完依赖（约一分钟），浏览器会自己打开。
+
+第一次运行时它会建 `.venv`、装依赖、探测资料库、建索引。这三件事只做一次，
+之后双击几秒就起来。
+
+如果双击之后窗口一闪而过，说明连 Python 都没找到，或者找到了但装不上依赖。
+这时**不要猜**，在本目录开一个 cmd 跑：
+
+```bat
+py scripts\setup.py --check
+```
+
+它会直接说：用的是哪个解释器、虚拟环境建没建、缺哪个包。把这行输出发出去，
+对方就知道问题在哪。
+
+`scripts\setup.py` 是这件事的唯一入口——macOS 的 `.command` 调的也是同一个文件，
+所以两个平台的行为不会分叉。改启动逻辑改这一个文件，别去改 `.bat` 里的流程。
+
+### 手工步骤（直接 clone 仓库、没有分发包时）
+
 PowerShell，逐段执行。假设仓库解压在 `D:\code\jiulv-kb`。
 
 ```powershell
@@ -68,10 +96,13 @@ python -m jiulv.cli start
 日常用 `start`，排查接口问题时用 `serve`（日志更详细）。
 
 不想开 PowerShell 的话，直接双击 `scripts\jiulv-start.bat`。它按 `.venv` → `py -3` →
-`python` 的顺序找解释器，找到后还会验一遍 `import yaml, fastapi, uvicorn`，
-缺依赖就打印确切的安装命令再退出。这一步不能省——双击启动时 PATH 比终端里窄，
-「终端能跑、双击报 ModuleNotFoundError」几乎都是挑到了另一个 Python。
-macOS 上对应的是 `scripts/jiulv-start.command`。
+`python` 的顺序找解释器，然后交给 `scripts\setup.py`：没有 `.venv` 就建，缺依赖就装，
+装不上才报错并给出确切命令。macOS 上对应的是 `scripts/jiulv-start.command`，
+调的是同一个 `setup.py`。
+
+这里有个容易踩空的地方值得记住：双击启动时的 PATH 比终端里窄，挑到另一个 Python
+是「终端能跑、双击报 ModuleNotFoundError」的唯一原因。`setup.py --check` 的第一行
+就是「解释器：……」的绝对路径，一看就知道挑错了没有。
 
 开机自启（三个平台同一套命令，都不需要管理员权限）：
 

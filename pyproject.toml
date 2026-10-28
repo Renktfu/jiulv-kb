@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jiulv-kb"
-version = "0.4.0"
+version = "0.5.0"
 description = "酒旅爆款文案知识库：把散落的爆款笔记、写作规则、钩子、房型资料，变成任何 AI 都能调用的检索与组稿服务。"
 readme = "README.md"
 requires-python = ">=3.9"

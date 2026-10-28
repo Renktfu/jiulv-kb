@@ -34,8 +34,10 @@ jiulv start                   # 一条命令：建索引 + 起网页 + 后台同
 给你。服务关掉窗口就停，数据仍在 `data/kb.sqlite3` 里。
 
 不想开终端有两个更省事的入口：macOS 双击 `scripts/jiulv-start.command`，Windows 双击
-`scripts/jiulv-start.bat`。两个脚本都会先确认 `python` 和依赖找得到，找不到就直说要装什么，
-不会只给你一段 ModuleNotFoundError。
+`scripts/jiulv-start.bat`。两个脚本只负责找到 `python`，然后把活交给 `scripts/setup.py`：
+**没有 .venv 就自己建，缺依赖就自己装**，装不上才说话，而且说的是「该装什么」而不是一段
+`ModuleNotFoundError`。所以别人拿到这个文件夹，只要机器上有 Python，双击就能用，不用先教
+他敲 pip。
 
 想开机就自动跑起来：
 
@@ -68,6 +70,42 @@ jiulv autostart off     # 卸掉，一条命令，不留残渣
 `python -m jiulv.cli <子命令>` 而不是裸 `jiulv`，避免 PATH 问题；
 项目目录不要放在 OneDrive 同步盘里（SQLite 的 WAL 三个文件会错位）；
 路径很深时先开 `LongPathsEnabled`。
+
+## 打包发给别人
+
+自己用 clone 就行。要给别人（尤其是 Windows 用户），别让他装 Python 环境、别让他 clone，
+直接打一个包：
+
+```bash
+python3 scripts/make_dist.py           # 生成 dist/
+python3 scripts/make_dist.py --clean   # 先清空再生成
+```
+
+打出来是这样：
+
+```
+dist/
+├── 先读我.txt            两个平台各一份，先看这个
+├── macos/                苹果电脑用这份，双击「双击启动.command」
+│   ├── 双击启动.command
+│   ├── jiulv/ docs/ tests/ scripts/ examples/
+│   ├── pyproject.toml README.md LICENSE ...
+│   └── data/             空的，第一次启动把索引建在这
+└── windows/              Windows 用这份，双击「双击启动.bat」
+    └── （同上，启动器换成 .bat，另附使用说明）
+```
+
+两个目录**完全独立**，可以只拷其中一个走。
+
+刻意的取舍：包里不带 `.venv`（虚拟环境里全是绝对路径，换目录就废）、不带
+`data/kb.sqlite3`（160MB 真实索引，含客户酒店名，且和你本机路径绑死）、不带
+`config.yaml` / `sources.yaml`（里面是本机绝对路径，没有它们反而好——启动时会按
+当前机器的实际布局重新探测）。所以包只有 0.5MB，换台机器、换个目录都能直接跑。
+
+`使用说明.txt` 是 UTF-8 带 BOM + CRLF 写的。看着像多余，但不加会出事：老版记事本
+按 ANSI 打开无 BOM 的 UTF-8 中文 txt 是满屏乱码，用的人第一反应是「文件坏了」；
+只给 LF 的换行，1809 之前的记事本会把整段并成一行。Windows 那个 `.bat` 同理，
+cmd 的老解析器对孤立 LF 有已知问题，打包时统一转 CRLF。
 
 ## 界面上有什么
 
@@ -193,6 +231,8 @@ jiulv/            后端
   launcher.py     启动编排（端口顺延、缺库先建）+ 三平台开机自启
 
 scripts/          双击启动：jiulv-start.command（macOS）/ jiulv-start.bat（Windows）
+  setup.py        启动前的自举：没有 .venv 就建，缺依赖就装，两个平台共用
+  make_dist.py    打分成包：生成 dist/macos 与 dist/windows
   compose.py      组稿上下文包
   api.py          FastAPI 路由
   mcp_server.py   MCP stdio server（纯标准库）
