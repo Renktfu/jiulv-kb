@@ -59,9 +59,32 @@ python -m jiulv.cli doctor
 python -m jiulv.cli connect
 python -m jiulv.cli sync
 
-# 6. 起服务，浏览器打开 http://127.0.0.1:8787
-python -m jiulv.cli serve
+# 6. 日常启动就用这一条：缺索引先建，然后网页 + 后台同步一起开着，自动开浏览器
+python -m jiulv.cli start
 ```
+
+`start` 和 `serve` 的区别：`serve` 只起接口，资料库有新东西要另开一个窗口跑 `watch`；
+`start` 是一个进程里把两件事都干了，并且会在缺索引时先建、端口被占时自动顺延一个。
+日常用 `start`，排查接口问题时用 `serve`（日志更详细）。
+
+不想开 PowerShell 的话，直接双击 `scripts\jiulv-start.bat`。它按 `.venv` → `py -3` →
+`python` 的顺序找解释器，找到后还会验一遍 `import yaml, fastapi, uvicorn`，
+缺依赖就打印确切的安装命令再退出。这一步不能省——双击启动时 PATH 比终端里窄，
+「终端能跑、双击报 ModuleNotFoundError」几乎都是挑到了另一个 Python。
+macOS 上对应的是 `scripts/jiulv-start.command`。
+
+开机自启（三个平台同一套命令，都不需要管理员权限）：
+
+```powershell
+python -m jiulv.cli autostart on       # Windows 建计划任务，登录时触发
+python -m jiulv.cli autostart status   # 看装没装、在不在跑、日志在哪
+python -m jiulv.cli autostart off      # 卸掉
+```
+
+自启执行的是 `start --no-browser`（开机弹浏览器是骚扰不是便利），日志写
+`data\logs\jiulv.log`。Windows 上是一个登录时触发的计划任务，名字 `jiulv-kb`，
+会带一个控制台窗口——这是它的正常形态，不是出错。要彻底删干净：
+`schtasks /Delete /TN jiulv-kb /F`。
 
 关于入口写法：`pip install -e .` 之后会生成 `jiulv.exe`，正常情况下直接敲
 `jiulv sync` 就行。但如果 PATH 没刷新生效，或者被公司的 Python 环境拦住，
@@ -84,8 +107,10 @@ python -m jiulv.cli connect
 ```
 jiulv/
   cli.py            命令行入口，所有子命令的参数与输出都在这里
+  launcher.py       start 的启动编排（端口顺延、缺库先建）+ 三平台开机自启
   config.py         读 config.yaml + sources.yaml，合并默认值，展开 ~ 与环境变量
   platform_compat.py 跨平台差异（编码、路径同一性、原子写、文件名、遍历）
+  doctor.py         环境自检，出问题先跑它
   connectors.py     探测本机有哪些资料库，写 sources.yaml
   sync.py           指纹判断要不要重扫；watch 常驻轮询
   ingest.py         扫描 → 解析 → 抽元数据 → 建 FTS 索引 → 重算注解与图谱
@@ -100,8 +125,11 @@ jiulv/
   db.py             建表、连接、统计
   api.py            REST 接口
   mcp_server.py     MCP（stdio）
-  doctor.py         环境自检
   web/              静态前端（index.html / app.js / style.css）
+
+scripts/
+  jiulv-start.command  macOS 双击启动
+  jiulv-start.bat      Windows 双击启动
 ```
 
 改需求时按这个顺序找：**行为不对先看对应的那个 py，界面不对只看 `web/`。**

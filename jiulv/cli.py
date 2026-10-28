@@ -1,4 +1,5 @@
-"""命令行入口：jiulv init / ingest / search / compose / serve / mcp / stats。"""
+"""命令行入口：init / connect / sync / watch / start / ingest / search / compose /
+serve / autostart / mcp / stats / doctor / export。"""
 
 from __future__ import annotations
 
@@ -325,6 +326,51 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_start(args: argparse.Namespace) -> int:
+    """一条命令跑起来：缺索引先建，然后网页 + 后台同步一起开着。"""
+    from . import launcher
+
+    config = load_config(args.config)
+    return launcher.start(
+        config,
+        host=args.host,
+        port=args.port,
+        interval=args.interval,
+        browser=not args.no_browser,
+        watch_enabled=not args.no_watch,
+    )
+
+
+def cmd_autostart(args: argparse.Namespace) -> int:
+    from . import launcher
+
+    config = load_config(args.config)
+    if args.action == "status":
+        info = launcher.autostart_status(config)
+    elif args.action == "on":
+        info = launcher.autostart_install(config, dry_run=args.dry_run)
+    else:
+        info = launcher.autostart_remove(config)
+
+    if args.json:
+        _print(info)
+        return 0 if info.get("installed", True) or info.get("ok") else 1
+
+    print(f"平台：{info['platform']}    目标：{info.get('target', '')}")
+    print(f"已安装：{'是' if info.get('installed') else '否'}    "
+          f"在运行：{'是' if info.get('running') else '否'}")
+    print(f"命令：{info['command']}")
+    print(f"日志：{info['log']}")
+    if info.get("detail"):
+        print(f"说明：{info['detail']}")
+    if info.get("message"):
+        print(f"结果：{info['message']}")
+    if info.get("would_write"):
+        print("—— 将会写入 ——")
+        print(info.get("would_body") or info["would_write"])
+    return 0
+
+
 def cmd_mcp(args: argparse.Namespace) -> int:
     from .mcp_server import serve
 
@@ -457,6 +503,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--port", type=int)
     p_serve.add_argument("--log-level", default="info")
     p_serve.set_defaults(func=cmd_serve)
+
+    p_start = sub.add_parser("start", help="一条命令启动：补齐索引 + 网页 + 后台同步")
+    p_start.add_argument("--host")
+    p_start.add_argument("--port", type=int)
+    p_start.add_argument("--interval", type=int, help="后台同步间隔（秒）")
+    p_start.add_argument("--no-browser", action="store_true", help="不自动开浏览器")
+    p_start.add_argument("--no-watch", action="store_true", help="不跑后台同步")
+    p_start.set_defaults(func=cmd_start)
+
+    p_auto = sub.add_parser("autostart", help="开机自启：on / off / status")
+    p_auto.add_argument("action", choices=["on", "off", "status"])
+    p_auto.add_argument("--dry-run", action="store_true", help="只打印要写什么，不落盘")
+    p_auto.add_argument("--json", action="store_true")
+    p_auto.set_defaults(func=cmd_autostart)
 
     p_mcp = sub.add_parser("mcp", help="以 stdio MCP server 方式运行")
     p_mcp.set_defaults(func=cmd_mcp)

@@ -1,4 +1,4 @@
-.PHONY: help install connect sync watch ingest rebuild serve embed test fmt clean
+.PHONY: help install connect sync watch start ingest rebuild serve autostart embed test fmt clean
 
 help:
 	@echo "make install   建虚拟环境并安装（含解析依赖）"
@@ -7,7 +7,9 @@ help:
 	@echo "make watch     常驻监听资料库，两分钟看一次"
 	@echo "make ingest    增量收录"
 	@echo "make rebuild   清空重建索引"
-	@echo "make serve     启动网页与接口，默认 8787"
+	@echo "make start     一条命令跑起来：建索引 + 网页 + 后台同步"
+	@echo "make serve     只起网页与接口，默认 8787"
+	@echo "make autostart 装成开机自启（off 卸载）"
 	@echo "make embed     生成语义向量（需先配 semantic）"
 	@echo "make test      跑测试"
 	@echo "make clean     删掉索引和缓存"
@@ -33,8 +35,14 @@ ingest:
 rebuild:
 	.venv/bin/jiulv ingest --rebuild
 
+start:
+	.venv/bin/jiulv start
+
 serve:
 	.venv/bin/jiulv serve
+
+autostart:
+	.venv/bin/jiulv autostart status
 
 embed:
 	.venv/bin/jiulv embed

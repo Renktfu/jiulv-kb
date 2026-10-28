@@ -14,6 +14,7 @@ sources.yaml
 data/sync_state.json
 data/inbox/
 data/watch.log
+data/logs/
 
 # Python
 __pycache__/

@@ -26,9 +26,27 @@ pip install -e ".[parsers]"
 
 jiulv init                    # 生成 config.yaml
 jiulv connect                 # 探测本机的 WorkBuddy / OpenCLaw 资料库，写进 sources.yaml
-jiulv sync                    # 建索引，1500 篇大约半分钟
-jiulv serve                   # 打开 http://127.0.0.1:8787
+jiulv start                   # 一条命令：建索引 + 起网页 + 后台同步，并自动开浏览器
 ```
+
+`jiulv start` 就是日常那一条。缺索引它会先建（1500 篇约半分钟），已经在跑就只把浏览器
+再打开一次，端口被别的程序占了会自动往后顺延一个，不会甩一段 address already in use
+给你。服务关掉窗口就停，数据仍在 `data/kb.sqlite3` 里。
+
+不想开终端有两个更省事的入口：macOS 双击 `scripts/jiulv-start.command`，Windows 双击
+`scripts/jiulv-start.bat`。两个脚本都会先确认 `python` 和依赖找得到，找不到就直说要装什么，
+不会只给你一段 ModuleNotFoundError。
+
+想开机就自动跑起来：
+
+```bash
+jiulv autostart on      # macOS 写 LaunchAgent，Linux 写 systemd 用户服务，Windows 建计划任务
+jiulv autostart status  # 装没装、在不在跑、日志在哪
+jiulv autostart off     # 卸掉，一条命令，不留残渣
+```
+
+自启用的命令是 `start --no-browser`：开机自动弹一堆标签页是骚扰不是便利。日志写在
+`data/logs/jiulv.log`。都不需要管理员权限。
 
 `[parsers]` 是 docx/pdf/xlsx 的解析依赖。不装也能跑，只是这几种格式会被跳过。
 
@@ -46,7 +64,8 @@ jiulv serve                   # 打开 http://127.0.0.1:8787
 清单见 [`docs/WINDOWS.md`](docs/WINDOWS.md)，那份文档是写给「在 Windows 上接手
 这个仓库的人或 AI」看的，包含每个平台敏感点的文件位置和改坏后的症状。
 
-要点三条：用 `python -m jiulv.cli <子命令>` 而不是裸 `jiulv`，避免 PATH 问题；
+要点三条：日常双击 `scripts/jiulv-start.bat` 最省事，命令行里则用
+`python -m jiulv.cli <子命令>` 而不是裸 `jiulv`，避免 PATH 问题；
 项目目录不要放在 OneDrive 同步盘里（SQLite 的 WAL 三个文件会错位）；
 路径很深时先开 `LongPathsEnabled`。
 
@@ -171,6 +190,9 @@ jiulv/            后端
   inbox.py        回写池：agent 的产出入库
   platform_compat.py 跨平台差异：控制台编码、路径同一性、原子写、文件名、遍历
   doctor.py       环境自检（jiulv doctor）
+  launcher.py     启动编排（端口顺延、缺库先建）+ 三平台开机自启
+
+scripts/          双击启动：jiulv-start.command（macOS）/ jiulv-start.bat（Windows）
   compose.py      组稿上下文包
   api.py          FastAPI 路由
   mcp_server.py   MCP stdio server（纯标准库）
@@ -178,7 +200,7 @@ jiulv/            后端
   web/            前端（零构建，原生 JS）
 docs/             架构、接口、接入、收录、连接方式、Windows 交接
 examples/         四端接入样例
-tests/            75 个测试，跑 pytest 即可
+tests/            82 个测试，跑 pytest 即可
 ```
 
 ## 设计取舍

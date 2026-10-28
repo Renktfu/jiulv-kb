@@ -99,6 +99,13 @@ class Config:
             node = node[key]
         return node
 
+    def reload(self) -> "Config":
+        """重新读盘。`jiulv connect` 刚写完 sources.yaml 时用得上——
+        不重读的话本次进程里还是空的来源列表。"""
+        fresh = load_config(self.path)
+        self.data, self.base_dir, self.path = fresh.data, fresh.base_dir, fresh.path
+        return self
+
     @property
     def db_path(self) -> Path:
         raw = self.get("app", "database", default="data/kb.sqlite3")
