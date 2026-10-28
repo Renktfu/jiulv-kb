@@ -25,6 +25,34 @@ FILTER_COLUMNS = {
 
 MARK_OPEN, MARK_CLOSE = "«", "»"
 
+# 判断「是不是同一篇」之前先洗标题。只差一个 ·、— 或空格的标题，人和检索
+# 结果都认成同一篇，去重也该认成同一篇。
+_TITLE_NOISE_RE = re.compile(r"[\s，,。.！!？?、·\-—－：:；;（）()【】\[\]「」\"'“”‘’~～|/]+")
+
+
+def title_key(title: Any) -> str:
+    """标题归一：去掉标点与空白，统一小写。"""
+    return _TITLE_NOISE_RE.sub("", str(title or "")).lower()
+
+
+def _register_title_key(conn) -> None:
+    """把 title_key 注册成 SQLite 函数，供分组/计数直接用。"""
+    conn.create_function("jiulv_title_key", 1, title_key, deterministic=True)
+
+
+def _dedupe_key_expr(alias: str = "d") -> str:
+    """同一条内容的分组键。
+
+    标题够长就按「洗净的标题+类型」；标题太短（如「避雷」）会误并，退回内容
+    哈希；连哈希都没有的按 id 单独成组。只看哈希的话，标题只差一个 · 或 —
+    的两份副本会被当成两篇不同的东西。
+    """
+    return (
+        f"CASE WHEN length(jiulv_title_key({alias}.title)) >= 6 "
+        f"THEN 't:' || jiulv_title_key({alias}.title) || '|' || coalesce({alias}.doc_type, '') "
+        f"ELSE 'h:' || coalesce(nullif({alias}.content_hash, ''), 'id:' || {alias}.id) END"
+    )
+
 # 不同类型的文件对「写稿」的价值不一样：索引用不上，爆款和规则最有用
 TYPE_WEIGHT = {"index": 0.18, "daily": 0.7, "misc": 0.85, "ops": 0.85}
 GRADE_BONUS = {"S": 1.25, "A": 1.12}
@@ -300,8 +328,8 @@ def search(
     seen_key: Dict[Any, Dict[str, Any]] = {}
     for doc_id, entry in ranked:
         doc = all_docs.get(doc_id) or {}
-        title_key = re.sub(r"[\s，,。！!？?、·]+", "", doc.get("title") or "")
-        key: Any = (title_key, doc.get("doc_type")) if len(title_key) >= 6 else doc_id
+        cleaned = title_key(doc.get("title"))
+        key: Any = (cleaned, doc.get("doc_type")) if len(cleaned) >= 6 else doc_id
         if key in seen_key:
             seen_key[key]["duplicates"] += 1
             continue
@@ -400,20 +428,63 @@ def list_docs(
     limit: int = 30,
     offset: int = 0,
     order: str = "recent",
+    dedupe: bool = True,
     **filters: Any,
 ) -> Dict[str, Any]:
+    """按条件列文档。
+
+    dedupe 默认开着。同一份内容常被几个来源库各收一份，实测 1888 篇里只有
+    927 篇是不同内容；不去重时点一个地区，满屏都是同一篇的副本。分组按
+    「洗净标题+类型」，标题太短才退回内容哈希；每组挑等级最高、正文最长的
+    那份当代表，副本数挂在 duplicates 上。
+    """
     where, params = _build_filters({k: v for k, v in filters.items() if v not in (None, "", [])})
     order_sql = {
         "recent": "d.indexed_at DESC",
         "grade": "CASE d.grade WHEN 'S' THEN 0 WHEN 'A' THEN 1 WHEN 'B' THEN 2 ELSE 3 END, d.id DESC",
         "title": "d.title ASC",
     }.get(order, "d.indexed_at DESC")
-    total = conn.execute(f"SELECT COUNT(*) FROM docs d WHERE 1=1 {where}", params).fetchone()[0]
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    if not dedupe:
+        total = conn.execute(f"SELECT COUNT(*) FROM docs d WHERE 1=1 {where}", params).fetchone()[0]
+        rows = conn.execute(
+            f"SELECT * FROM docs d WHERE 1=1 {where} ORDER BY {order_sql} LIMIT ? OFFSET ?",
+            params + [limit, offset],
+        ).fetchall()
+        return {"total": total, "items": [doc_row_to_dict(r) for r in rows]}
+
+    # 分组键见 _dedupe_key_expr；每组挑等级最高、正文最长的那份当代表
+    _register_title_key(conn)
+    keyed = f"SELECT d.*, {_dedupe_key_expr('d')} AS _k FROM docs d WHERE 1=1 {where}"
+    total = conn.execute(f"SELECT COUNT(DISTINCT _k) FROM ({keyed})", params).fetchone()[0]
     rows = conn.execute(
-        f"SELECT * FROM docs d WHERE 1=1 {where} ORDER BY {order_sql} LIMIT ? OFFSET ?",
-        params + [max(1, min(limit, 200)), max(0, offset)],
+        f"""
+        WITH keyed AS ({keyed}),
+        ranked AS (
+            SELECT id, _k,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY _k
+                       ORDER BY CASE grade WHEN 'S' THEN 0 WHEN 'A' THEN 1 WHEN 'B' THEN 2 ELSE 3 END,
+                                char_count DESC, id
+                   ) AS rn,
+                   COUNT(*) OVER (PARTITION BY _k) AS dup
+            FROM keyed
+        )
+        SELECT d.*, r.dup AS _dup
+        FROM keyed d JOIN ranked r ON r.id = d.id AND r.rn = 1
+        ORDER BY {order_sql}
+        LIMIT ? OFFSET ?
+        """,
+        params + [limit, offset],
     ).fetchall()
-    return {"total": total, "items": [doc_row_to_dict(r) for r in rows]}
+    items: List[Dict[str, Any]] = []
+    for row in rows:
+        doc = doc_row_to_dict(row)
+        doc["duplicates"] = max(0, int(row["_dup"] or 1) - 1)
+        items.append(doc)
+    return {"total": total, "items": items}
 
 
 def nearby_docs(conn, doc_id: int, region: Optional[str], limit: int = 5) -> List[Dict[str, Any]]:
@@ -437,13 +508,31 @@ def nearby_docs(conn, doc_id: int, region: Optional[str], limit: int = 5) -> Lis
     return [doc_row_to_dict(r) for r in rows]
 
 
+def count_unique_docs(conn) -> int:
+    """全库去重后的篇数：同一个内容被几个来源各收一份只算一篇。"""
+    _register_title_key(conn)
+    return conn.execute(
+        f"SELECT COUNT(DISTINCT {_dedupe_key_expr('d')}) FROM docs d"
+    ).fetchone()[0]
+
+
 def facets(conn) -> Dict[str, Any]:
+    """侧栏标签的计数。
+
+    计数一律按去重后的口径，这样「点进去看到的篇数」和「标签上写的数」一致；
+    用收录条数会虚高一倍，点进去发现少一半，像丢了数据。
+    """
+    _register_title_key(conn)
+    key = _dedupe_key_expr("d")
+
     def group(column: str, limit: int = 40):
+        col = f"d.{column}"
         return [
             {"value": r[0], "count": r[1]}
             for r in conn.execute(
-                f"SELECT {column}, COUNT(*) FROM docs WHERE {column} IS NOT NULL AND {column} <> '' "
-                f"GROUP BY {column} ORDER BY COUNT(*) DESC LIMIT ?",
+                f"SELECT {col}, COUNT(DISTINCT {key}) FROM docs d "
+                f"WHERE {col} IS NOT NULL AND {col} <> '' "
+                f"GROUP BY {col} ORDER BY COUNT(DISTINCT {key}) DESC LIMIT ?",
                 (limit,),
             )
         ]

@@ -159,6 +159,11 @@ html, body {
 .chip.active { background: var(--accent); border-color: var(--accent); color: var(--paper-2); }
 .chip .n { opacity: .55; margin-left: 4px; font-size: 11px; }
 
+/* 只按标签浏览时的「继续加载」一行 */
+.more-row { display: flex; justify-content: center; margin: 22px 0 34px; }
+.more-row .chip { padding: 7px 16px; font-size: 13px; }
+.more-row .chip:disabled { opacity: .5; cursor: default; }
+
 .filter-foot { margin-top: 28px; display: flex; flex-direction: column; gap: 10px; }
 .filter-foot span { font-size: 11px; color: var(--ink-3); line-height: 1.5; }
 

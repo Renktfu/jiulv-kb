@@ -10,7 +10,7 @@
 
 ## GET /api/v1/stats
 
-库的规模与分布：文档数、段落数、钩子数、组稿记录数、回填数、总字数，以及 `by_type`、`by_region`、`by_source`。`facets` 里有地区和类型的计数，前端筛选项就是用这个渲染的。
+库的规模与分布：文档数、段落数、钩子数、组稿记录数、回填数、总字数，以及 `by_type`、`by_region`、`by_source`。`facets` 里有地区和类型的计数，前端筛选项就是用这个渲染的，计数按去重口径算。`docs` 是收录条数，`unique_docs` 是去掉各来源副本后的内容数，两个数会差得比较多，别混用。
 
 ## GET /api/v1/search
 
@@ -26,6 +26,8 @@
 ## GET /api/v1/docs
 
 列表，支持 `limit`／`offset`／`order`（`recent`／`grade`／`title`）和与 search 相同的筛选参数。不带 `q`，用于浏览。
+
+`dedupe` 默认 `true`：同一篇内容常被几个来源库各收一份（实测 1888 条收录里只有 830 篇是不同内容），不折叠的话点一个地区满屏都是副本。分组按「洗净标题+类型」，标题太短才退回内容哈希；每组挑等级最高、正文最长的那份当代表，其余份数放在 `duplicates` 上。`total` 是去重后的数，所以它和 `facets` 里各标签的计数能对得上。要拿原始逐条列表传 `dedupe=false`。
 
 ## GET /api/v1/docs/{uid}
 

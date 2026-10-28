@@ -177,6 +177,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
     def stats(conn=Depends(get_conn)) -> Dict[str, Any]:
         data = db.stats(conn)
         data["facets"] = search_mod.facets(conn)
+        # 收录条数 vs 不同内容：同一篇被几个来源各收一份时两者差得很远
+        data["unique_docs"] = search_mod.count_unique_docs(conn)
         return data
 
     @app.get("/api/v1/sources", tags=["基础"], dependencies=guard)
@@ -273,6 +275,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         limit: int = 30,
         offset: int = 0,
         order: str = "recent",
+        dedupe: bool = Query(True, description="同一内容被多个来源收录时只留一份（默认开）"),
         region: Optional[str] = None,
         doc_type: Optional[str] = None,
         hotel: Optional[str] = None,
@@ -281,8 +284,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
         conn=Depends(get_conn),
     ) -> Dict[str, Any]:
         return search_mod.list_docs(
-            conn, limit=limit, offset=offset, order=order, region=region,
-            doc_type=doc_type, hotel=hotel, group=group, grade=grade,
+            conn, limit=limit, offset=offset, order=order, dedupe=dedupe,
+            region=region, doc_type=doc_type, hotel=hotel, group=group, grade=grade,
         )
 
     @app.get("/api/v1/docs/{uid}", tags=["检索"], dependencies=guard)

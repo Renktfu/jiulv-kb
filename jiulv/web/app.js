@@ -27,6 +27,7 @@ const state = {
   filters: { region: "", doc_type: "", grade: "", group: "" },
   results: null,
   facets: null,
+  stats: null,
   taxonomy: null,
   hooks: [],
   hookType: "",
@@ -232,6 +233,12 @@ async function runSearch() {
   const view = $("#view");
   const query = state.query.trim();
   if (!query) {
+    // 没有关键词、但点了侧栏标签时要直接列出这批文档。
+    // 这里以前无条件回首页，于是点标签只有变色，列表不动。
+    if (hasFilters()) {
+      await runBrowse();
+      return;
+    }
     renderLanding(view);
     return;
   }
@@ -264,6 +271,101 @@ async function runSearch() {
     for (const hit of data.hits) view.appendChild(resultCard(hit));
   } catch (error) {
     view.innerHTML = `<div class="empty"><strong>检索失败</strong>${escapeHtml(error.message)}</div>`;
+  }
+}
+
+/* -------------------------------------------------------------- 浏览模式 */
+
+// 只按标签浏览：不带关键词，直接列符合条件的文档，可继续翻页。
+const BROWSE_PAGE = 30;
+
+function hasFilters() {
+  return Object.values(state.filters).some((value) => value);
+}
+
+function filterLabels() {
+  const out = [];
+  for (const [key, value] of Object.entries(state.filters)) {
+    if (!value) continue;
+    out.push(key === "doc_type" ? TYPE_LABEL[value] || value : value);
+  }
+  return out;
+}
+
+async function runBrowse() {
+  setView("search");
+  window.scrollTo(0, 0);
+  await loadBrowsePage(0, false);
+}
+
+async function loadBrowsePage(offset, append) {
+  const view = $("#view");
+  const params = new URLSearchParams({
+    limit: String(BROWSE_PAGE),
+    offset: String(offset),
+    // 按等级排而不是按最近索引：索引时间排序会把杂项文件顶到最前面，
+    // 点开「云贵川 452」看到的全是 sleep 日志之类的东西，等于没用。
+    order: "grade",
+  });
+  for (const [key, value] of Object.entries(state.filters)) if (value) params.set(key, value);
+
+  if (!append) {
+    view.innerHTML = "";
+    const head = el("div", "view-head");
+    head.appendChild(el("h2", null, filterLabels().join(" · ") || "全部文档"));
+    head.appendChild(el("span", "hint", "读取中…"));
+    view.appendChild(head);
+  }
+
+  let data;
+  try {
+    data = await api("/api/v1/docs?" + params.toString());
+  } catch (error) {
+    if (!append) view.innerHTML = `<div class="empty"><strong>读取失败</strong>${escapeHtml(error.message)}</div>`;
+    else toast("加载失败：" + error.message);
+    return;
+  }
+
+  if (!append) {
+    view.innerHTML = "";
+    const head = el("div", "view-head");
+    head.appendChild(el("h2", null, filterLabels().join(" · ") || "全部文档"));
+    // 数字是去重后的：侧栏那个数含各来源的副本，这里只算不同内容
+    head.appendChild(el("span", "hint", `${data.total} 篇不同内容 · 按等级排`));
+    view.appendChild(head);
+  }
+
+  const stale = view.querySelector(".more-row");
+  if (stale) stale.remove();
+
+  if (!data.items.length) {
+    if (!append) {
+      const empty = el("div", "empty");
+      empty.innerHTML =
+        "<strong>这个组合下没有文档</strong>去掉一两个标签再看，或者直接搜关键词。";
+      view.appendChild(empty);
+    }
+    return;
+  }
+
+  for (const doc of data.items) view.appendChild(resultCard({ doc, duplicates: doc.duplicates }));
+
+  const shown = offset + data.items.length;
+  const rest = data.total - shown;
+  if (rest > 0) {
+    const row = el("div", "more-row");
+    const btn = el("button", "chip", `继续加载（还有 ${rest} 篇）`);
+    btn.onclick = () => {
+      btn.disabled = true;
+      btn.textContent = "读取中…";
+      loadBrowsePage(shown, true);
+    };
+    row.appendChild(btn);
+    view.appendChild(row);
+  } else if (append) {
+    const done = el("div", "more-row");
+    done.appendChild(el("span", "meta", `已显示全部 ${data.total} 篇`));
+    view.appendChild(done);
   }
 }
 
@@ -302,10 +404,14 @@ function renderLanding(view) {
   if (state.facets) {
     const stats = el("div", "summary-row");
     stats.style.marginTop = "26px";
-    const total = (state.facets.groups || []).reduce((sum, g) => sum + g.count, 0);
-    stats.innerHTML = `<span>共 <b>${total}</b> 篇文档</span><span><b>${
-      (state.facets.regions || []).length
-    }</b> 个地区</span><span><b>${(state.facets.hotels || []).length}</b> 家酒店</span>`;
+    // 收录条数会虚高一倍（同一篇被几个来源各收一份）；并列给出不同内容数
+    const unique = state.stats?.unique_docs || 0;
+    const collected = state.stats?.docs || 0;
+    stats.innerHTML = `<span><b>${unique}</b> 篇不同内容</span><span><b>${
+      collected
+    }</b> 条收录</span><span><b>${(state.facets.regions || []).length}</b> 个地区</span><span><b>${
+      (state.facets.hotels || []).length
+    }</b> 家酒店</span>`;
     view.appendChild(stats);
   }
 }
@@ -1358,10 +1464,14 @@ async function boot() {
   try {
     const [stats, taxonomy] = await Promise.all([api("/api/v1/stats"), api("/api/v1/taxonomy")]);
     state.facets = stats.facets;
+    state.stats = stats;
     state.taxonomy = taxonomy;
     renderFacets();
-    $("#db-meta").textContent = `${stats.docs} 篇 · 索引于 ${(stats.indexed_at || "").slice(0, 16).replace("T", " ")}`;
-    $("#tagline").textContent = `${stats.docs} 篇资料 · ${stats.hooks} 条钩子 · 可接 Agent`;
+    const unique = stats.unique_docs || stats.docs;
+    $("#db-meta").textContent = `${unique} 篇不同内容 · 索引于 ${(stats.indexed_at || "")
+      .slice(0, 16)
+      .replace("T", " ")}`;
+    $("#tagline").textContent = `${unique} 篇资料 · ${stats.hooks} 条钩子 · 可接 Agent`;
   } catch (error) {
     $("#view").innerHTML = `<div class="empty"><strong>连不上服务</strong>${escapeHtml(
       error.message
