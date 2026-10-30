@@ -43,7 +43,7 @@ status=$?
 # 异常退出时把窗口留住，否则报错一闪而过等于没报。
 if [ $status -ne 0 ]; then
   echo
-  echo "退出码 $status。诊断环境："
+  echo "退出码 ${status}。诊断环境："
   echo "  $PY scripts/setup.py --check"
   echo "  $PY -m jiulv.cli doctor"
   echo "按回车关闭。"

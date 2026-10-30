@@ -99,13 +99,39 @@ def missing_modules(py, names) -> list:
     return list(names)
 
 
+def venv_is_usable(py: Path, root: Path = VENV_DIR) -> bool:
+    """这个 .venv 是不是「这台机器、这个位置」建出来的。
+
+    分发包被人先在原处双击过一次，.venv 就跟着拷给别人了。里面的 bin/python
+    是软链、pyvenv.cfg 的 home 指向前一台机器的解释器、site-packages 也按旧
+    路径找。这时 py.exists() 是真的，但一跑就是「bad interpreter」或者一片
+    ModuleNotFoundError，用户只看到窗口闪一下就没了，猜不到该重建虚拟环境。
+
+    判据只有一个：它自己报的 sys.prefix 必须就是当前这个 .venv 目录。
+    """
+    if not py.exists():
+        return False
+    code = "import os, sys; print(os.path.realpath(sys.prefix))"
+    try:
+        result = _run([str(py), "-c", code], timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if result.returncode != 0:
+        return False
+    reported = (result.stdout or "").strip()
+    return bool(reported) and reported == os.path.realpath(root)
+
+
 def ensure_venv(rebuild: bool = False) -> Path:
     py = venv_python()
     if rebuild and VENV_DIR.exists():
         say(f"重建虚拟环境：删掉 {VENV_DIR}")
         shutil.rmtree(VENV_DIR, ignore_errors=True)
     if py.exists():
-        return py
+        if venv_is_usable(py):
+            return py
+        say("现有的 .venv 不是这个目录建的（多半是从别处拷过来的包），重建。")
+        shutil.rmtree(VENV_DIR, ignore_errors=True)
 
     say(f"第一次运行，正在创建虚拟环境：{VENV_DIR}")
     result = _run([which_python(), "-m", "venv", str(VENV_DIR)])
@@ -235,6 +261,9 @@ def main(argv=None) -> int:
             say("虚拟环境：还没建（首次启动会自动建）")
             return 0
         say(f"虚拟环境：{VENV_DIR}")
+        if not venv_is_usable(py):
+            say("          这个 .venv 不是在本目录建的（拷来的包会这样），下次启动会重建")
+            return 1
         missing = missing_modules(py, REQUIRED)
         say("必需依赖：" + ("齐全" if not missing else "缺 " + ", ".join(missing)))
         opt = missing_modules(py, OPTIONAL)
