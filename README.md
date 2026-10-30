@@ -108,14 +108,20 @@ python3 scripts/make_dist.py --clean   # 先清空再生成
 ```
 dist/
 ├── 先读我.txt            两个平台各一份，先看这个
-├── macos/                苹果电脑用这份，双击「双击启动.command」
-│   ├── 双击启动.command
+├── macos/                苹果电脑用这份
+│   ├── 01-双击启动.command   ← 只有这个要双击
+│   ├── 02-使用说明.txt       出问题再看
 │   ├── jiulv/ docs/ tests/ scripts/ examples/
 │   ├── pyproject.toml README.md LICENSE ...
 │   └── data/             空的，第一次启动把索引建在这
-└── windows/              Windows 用这份，双击「双击启动.bat」
-    └── （同上，启动器换成 .bat，另附使用说明）
+└── windows/              Windows 用这份
+    └── （同上，启动器换成 01-双击启动.bat）
 ```
+
+根目录那堆英文文件都是程序本身，少一个都跑不起来，但一个都不用点。启动器和
+说明书带 `01` / `02` 前缀，是为了在访达和资源管理器里排到英文名前面——原来叫
+`jiulv-start.command`，说明里却写「双击「双击启动.command」」，对不上，用户
+只能挨个试。现在名字和说明里那句话一字不差，`tests/test_dist.py` 会盯着这条。
 
 两个目录**完全独立**，可以只拷其中一个走。
 
@@ -124,7 +130,7 @@ dist/
 `config.yaml` / `sources.yaml`（里面是本机绝对路径，没有它们反而好——启动时会按
 当前机器的实际布局重新探测）。所以包只有 0.5MB，换台机器、换个目录都能直接跑。
 
-`使用说明.txt` 是 UTF-8 带 BOM + CRLF 写的。看着像多余，但不加会出事：老版记事本
+`02-使用说明.txt` 是 UTF-8 带 BOM + CRLF 写的。看着像多余，但不加会出事：老版记事本
 按 ANSI 打开无 BOM 的 UTF-8 中文 txt 是满屏乱码，用的人第一反应是「文件坏了」；
 只给 LF 的换行，1809 之前的记事本会把整段并成一行。Windows 那个 `.bat` 同理，
 cmd 的老解析器对孤立 LF 有已知问题，打包时统一转 CRLF。

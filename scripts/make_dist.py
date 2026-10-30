@@ -5,19 +5,24 @@
 
     dist/
     ├── 先读我.txt
-    ├── macos/          苹果电脑用这份，双击「双击启动.command」
-    │   ├── 双击启动.command
+    ├── macos/          苹果电脑用这份，双击「01-双击启动.command」
+    │   ├── 01-双击启动.command      ← 唯一要点的东西
+    │   ├── 02-使用说明.txt          ← 出问题看这个
     │   ├── jiulv/  tests/  docs/  scripts/  examples/
     │   ├── pyproject.toml  README.md  LICENSE  ...
     │   └── data/       空壳，第一次启动会把索引建在这；library/ 里带拆好的自有资料
-    └── windows/        Windows 用这份，双击「双击启动.bat」
+    └── windows/        Windows 用这份，双击「01-双击启动.bat」
         └── （同上，启动器换成 .bat，另附 Windows 安装说明）
+
+启动器和说明都带 01/02 前缀，是为了在 Finder / 资源管理器里排到英文文件
+前面。名字原来是 jiulv-start.command，说明里却写「双击启动.command」——
+对不上，用户找不到该点哪个。名字必须和说明里那句一字不差。
 
 刻意不带的东西，以及为什么：
 
 - `.venv/`：虚拟环境里全是绝对路径，换目录就废。启动器第一次运行会自己建。
 - `data/` 整个不进包，只留空壳和一个例外：`data/library/` 是拆好篇的自有资料
-  （马尔代夫 22 篇），不带索引、不带客户信息，带上让新包开箱就有东西可搜。
+  （马尔代夫 24 篇），不带索引、不带客户信息，带上让新包开箱就有东西可搜。
 - `data/kb.sqlite3`：160MB 真实索引，含客户酒店名，且和你本机路径绑死。
   新环境第一次启动会自动建库（1500 篇约半分钟）。
 - `config.yaml` / `sources.yaml`：里面是本机绝对路径。没有它们反而更好——
@@ -133,7 +138,7 @@ def copy_payload(dest: Path) -> int:
     # data/ 只留一个空壳。没有它，第一次启动时 SQLite 会自己建目录，
     # 但如果用户把包放在只读位置，报错会出现在很深的地方，不好查。
     #
-    # 例外是 data/library：那里面是拆好篇的自有资料（目前是马尔代夫 22 篇），
+    # 例外是 data/library：那里面是拆好篇的自有资料（目前是马尔代夫 24 篇），
     # 不是索引，也不含客户信息，带上能让新包开箱就有内容可搜。
     data_dir = dest / "data"
     data_dir.mkdir(exist_ok=True)
@@ -144,12 +149,16 @@ def copy_payload(dest: Path) -> int:
     return count
 
 
-def write_launcher(dest: Path, name: str) -> None:
-    """把启动器复制到包根，让人不用进 scripts/ 找。"""
-    src = ROOT / "scripts" / name
+def write_launcher(dest: Path, src_name: str, dst_name: str) -> None:
+    """把启动器复制到包根，让人不用进 scripts/ 找。
+
+    源文件留在 scripts/ 下沿用英文名（仓库里路径稳定），包根用带 01/02
+    前缀的中文名——用户打开包第一眼就该看到它，并且和说明里那句一字不差。
+    """
+    src = ROOT / "scripts" / src_name
     if not src.exists():
         return
-    target = dest / name
+    target = dest / dst_name
     raw = src.read_bytes().replace(b"\r\n", b"\n")
     if target.suffix.lower() == ".bat":
         # cmd 的老解析器对孤立 LF 有已知问题（尤其是括号块里的多行 if）。
@@ -168,9 +177,12 @@ README_TOP = """酒旅爆款文案知识库 — 分发包
     macos/      苹果电脑（macOS）
     windows/    Windows 电脑
 
-两边是同一套代码，只有启动器不同。挑好之后进对应文件夹，双击里面的
-「双击启动」文件就行，第一次会自动装依赖、建索引、打开网页，
-大约一到两分钟，之后就快了。
+两边是同一套代码，只有启动器不同。挑好之后进对应文件夹，双击排在最
+前面那个「01-双击启动」就行——带编号就是为了让它一眼排在最上面。
+第一次会自动装依赖、建索引、打开网页，大约一到两分钟，之后就快了。
+
+除它以外的东西都不用点：jiulv/、scripts/、docs/ 都是程序自己的文件，
+少一个就跑不起来。旁边那个「02-使用说明.txt」是出问题时才看的。
 
 这份包不带你自己的数据。资料库的路径、已建好的索引都没打进来，
 所以换一台机器、换一个目录都能直接跑，不会互相干扰。
@@ -195,7 +207,10 @@ MACOS_README = """macOS 使用说明
 
 第一次用
 --------
-1. 双击「双击启动.command」。
+整个文件夹里只有一样东西要双击：最上面那个「01-双击启动.command」。
+其余都是程序文件，点了没用。
+
+1. 双击 01-双击启动.command。
    如果提示「无法打开，因为来自身份不明的开发者」，右键它 →
    选「打开」→ 再点「打开」。只需要做一次。
 2. 会弹出一个终端窗口，自动装依赖（约一分钟），然后建索引、
@@ -208,7 +223,7 @@ MACOS_README = """macOS 使用说明
 
 以后每次
 --------
-双击「双击启动.command」即可。已经在跑的话，它只会帮你把浏览器再打开一次，
+双击 01-双击启动.command 即可。已经在跑的话，它只会帮你把浏览器再打开一次，
 不会报错。端口被别的程序占了会自动往后顺延一个。
 
 命令行用法
@@ -269,12 +284,15 @@ WINDOWS_README = """Windows 使用说明
 
 第一次用
 --------
+整个文件夹里只有一样东西要双击：最上面那个「01-双击启动.bat」。
+其余都是程序文件，点了没用。
+
 1. 装 Python（只需一次）。
    去 https://www.python.org/downloads/windows/ 下载 3.9 以上的安装包。
    安装的第一步一定要勾选 **Add python.exe to PATH**，这个不勾后面全是坑。
    装完最好重开一次资源管理器，让 PATH 生效。
 
-2. 双击「双击启动.bat」。
+2. 双击 01-双击启动.bat。
    会开一个黑色命令行窗口，自动装依赖（约一分钟），然后建索引、
    打开浏览器。**这个窗口别关**，关掉服务就停了。开着它用就行，
    可以最小化。
@@ -288,7 +306,7 @@ WINDOWS_README = """Windows 使用说明
 
 以后每次
 --------
-双击「双击启动.bat」。已经在跑的话只会帮你把浏览器再打开一次。
+双击 01-双击启动.bat。已经在跑的话只会帮你把浏览器再打开一次。
 
 三条容易踩的环境问题
 --------------------
@@ -370,16 +388,16 @@ def build(out: Path, clean: bool = False) -> int:
 
     total = {}
     for platform, launcher, readme, title in (
-        ("macos", "jiulv-start.command", MACOS_README, "macOS 版"),
-        ("windows", "jiulv-start.bat", WINDOWS_README, "Windows 版"),
+        ("macos", ("jiulv-start.command", "01-双击启动.command"), MACOS_README, "macOS 版"),
+        ("windows", ("jiulv-start.bat", "01-双击启动.bat"), WINDOWS_README, "Windows 版"),
     ):
         dest = out / platform
         if dest.exists():
             shutil.rmtree(dest)
         dest.mkdir(parents=True)
         count = copy_payload(dest)
-        write_launcher(dest, launcher)
-        write_text_crlf(dest / "使用说明.txt", readme, bom=True)
+        write_launcher(dest, launcher[0], launcher[1])
+        write_text_crlf(dest / "02-使用说明.txt", readme, bom=True)
         total[platform] = count
         say(f"  {title}：{count} 个文件 → {dest}")
 

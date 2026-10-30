@@ -91,11 +91,30 @@ def test_no_build_residue(dist):
 
 def test_launchers_in_place(dist):
     """启动器要放在包根，不能只在 scripts/ 里——用户不会往子目录找。"""
-    for platform, name in (("macos", "jiulv-start.command"), ("windows", "jiulv-start.bat")):
-        assert (dist / platform / name).is_file()
-        # scripts/ 里也留一份，方便命令行调用
-        assert (dist / platform / "scripts" / name).is_file()
+    for platform, src_name, dst_name in (
+        ("macos", "jiulv-start.command", "01-双击启动.command"),
+        ("windows", "jiulv-start.bat", "01-双击启动.bat"),
+    ):
+        assert (dist / platform / dst_name).is_file()
+        # scripts/ 里也留一份原名的，方便命令行调用
+        assert (dist / platform / "scripts" / src_name).is_file()
     assert (dist / "macos" / "scripts" / "setup.py").is_file()
+
+
+def test_readme_names_the_real_launcher(dist):
+    """说明里写的那个文件名，包里必须真有。
+
+    这条是踩出来的：启动器叫 jiulv-start.command，说明里却写「双击
+    「双击启动.command」」。用户照着念找不到，只能挨个文件点。名字对不对得上
+    不是文案问题，是能不能打开的问题。
+    """
+    for platform, readme, name in (
+        ("macos", "02-使用说明.txt", "01-双击启动.command"),
+        ("windows", "02-使用说明.txt", "01-双击启动.bat"),
+    ):
+        text = (dist / platform / readme).read_text(encoding="utf-8-sig")
+        assert name in text, f"{platform} 说明里没提 {name}"
+        assert (dist / platform / name).is_file()
 
 
 def test_windows_bat_uses_crlf(dist):
@@ -104,7 +123,7 @@ def test_windows_bat_uses_crlf(dist):
     cmd 的老解析器对孤立的 LF 有已知问题，尤其是括号块里的多行 if——
     而这个 .bat 里正好有。仓库里存 LF 是为了 diff 好读，打包时换回 CRLF。
     """
-    raw = (dist / "windows" / "jiulv-start.bat").read_bytes()
+    raw = (dist / "windows" / "01-双击启动.bat").read_bytes()
     assert b"\r\n" in raw
     assert raw.count(b"\n") == raw.count(b"\r\n")
 
@@ -112,7 +131,7 @@ def test_windows_bat_uses_crlf(dist):
 def test_readme_txt_is_bom_crlf(dist):
     """中文 txt 带 BOM + CRLF，老记事本才不乱码、不并成一行。"""
     targets = [dist / "先读我.txt"]
-    targets += [dist / p / "使用说明.txt" for p in ("macos", "windows")]
+    targets += [dist / p / "02-使用说明.txt" for p in ("macos", "windows")]
     for path in targets:
         raw = path.read_bytes()
         assert raw.startswith(b"\xef\xbb\xbf"), f"{path} 缺 BOM"

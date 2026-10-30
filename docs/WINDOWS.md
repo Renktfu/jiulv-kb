@@ -40,8 +40,8 @@ WorkBuddy / DeepSeek Harness 这类 agent 直接调库。
 
 1. 装 Python（只需一次）：<https://www.python.org/downloads/windows/>，
    安装第一步勾 **Add python.exe to PATH**。
-2. 把 `windows` 整个文件夹拷到本地盘（别放 OneDrive），双击里面的
-   `双击启动.bat`。
+2. 把 `windows` 整个文件夹拷到本地盘（别放 OneDrive），双击最上面那个
+   `01-双击启动.bat`。旁边那堆英文文件都是程序本身，一个都不用点。
 3. 等它自己装完依赖（约一分钟），浏览器会自己打开。
 
 第一次运行时它会建 `.venv`、装依赖、探测资料库、建索引。这三件事只做一次，
@@ -159,8 +159,8 @@ jiulv/
   web/              静态前端（index.html / app.js / style.css）
 
 scripts/
-  jiulv-start.command  macOS 双击启动
-  jiulv-start.bat      Windows 双击启动
+  jiulv-start.command  macOS 双击启动（打包时改名 01-双击启动.command）
+  jiulv-start.bat      Windows 双击启动（打包时改名 01-双击启动.bat）
 ```
 
 改需求时按这个顺序找：**行为不对先看对应的那个 py，界面不对只看 `web/`。**
