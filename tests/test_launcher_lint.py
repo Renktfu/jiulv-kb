@@ -37,3 +37,21 @@ def test_launcher_keeps_window_on_failure():
     text = SH.read_text(encoding="utf-8")
     assert "read -r _" in text
     assert "set -u" in text
+
+
+def test_docs_never_name_a_launcher_without_its_number():
+    """文档里写启动器名字，必须带 01- 编号。
+
+    启动器在包里叫 `01-双击启动.command`，编号是为了让人一眼挑出来。文档里
+    少写这个 01-，用户照着念就在文件夹里找到一个不存在的名字，只能挨个点。
+    这里只看反引号包起来的名字——正文里复盘历史的那句「以前写错过」用中文
+    引号，不会误伤。
+    """
+    pattern = re.compile(r"(?<!01-)`(双击启动\.(?:command|bat))`")
+    targets = [ROOT / "README.md"] + sorted((ROOT / "docs").glob("*.md"))
+    hits = []
+    for path in targets:
+        for no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for m in pattern.finditer(line):
+                hits.append(f"{path.name}:{no} {m.group(1)}")
+    assert hits == [], f"启动器名字漏了 01- 编号：{hits}"

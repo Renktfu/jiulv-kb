@@ -18,7 +18,7 @@
 
 WorkBuddy 这边四个：
 
-`~/WorkBuddy/2026-10-16-16-08-58/小红书酒旅资料库` 主资料库，716 篇，每日采集、爆款索引、钩子库、写作规则都在这。
+`~/WorkBuddy/<批次>/小红书酒旅资料库` 主资料库，每日采集、爆款索引、钩子库、写作规则都在这。
 
 `~/WorkBuddy/xhs-bluev-library`、`~/WorkBuddy/xhs-jiulv-pipeline`、`~/WorkBuddy/xhs-bluev-brands` 三个产出目录，蓝V 专库和流水线成稿。
 

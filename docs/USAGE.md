@@ -16,9 +16,9 @@
 
 macOS：双击桌面上的 `酒旅知识库.command`。这个文件是安装时放的，里面写死了项目路径。
 
-项目里对应的原件是 `scripts/jiulv-start.command`，双击效果一样。拿到分发包的人，双击的是包根目录的 `双击启动.command`。
+项目里对应的原件是 `scripts/jiulv-start.command`，双击效果一样。拿到分发包的人，只用双击包根目录的 `01-双击启动.command`；`scripts/` 里那个同名原件包里也带着，是同一份东西，不用管它。
 
-Windows：双击 `scripts/jiulv-start.bat`，分发包里是 `双击启动.bat`。
+Windows：双击 `scripts/jiulv-start.bat`，分发包里是包根目录的 `01-双击启动.bat`。
 
 双击之后会发生三件事，你什么都不用做：
 
@@ -31,7 +31,7 @@ Windows：双击 `scripts/jiulv-start.bat`，分发包里是 `双击启动.bat`�
 ### 命令行启动
 
 ```bash
-cd ~/WorkBuddy/2026-10-28-21-34-11/jiulv-kb
+cd /path/to/jiulv-kb
 .venv/bin/python -m jiulv.cli start
 ```
 
